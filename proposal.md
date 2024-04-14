@@ -5,7 +5,7 @@ Sample-Efficient play of Atari Games with Multi-Modal input
 - Noah Rousell: `nrousell`
 - Ryan Eng: 
 - Julian Beaudry: 
-- Adithya Sriram: 
+- Adithya Sriram: `asrira17`
 
 ### Introduction: What problem are you trying to solve and why?
 We are implementing the paper [Bigger, Better, Faster: Human-level Atari with human-level efficiency](https://arxiv.org/abs/2305.19452) and adding audio inputs as well. The original model, `BBF` was able to learn many Atari 2600 games at a superhuman level with only 2-hours of game-time.
