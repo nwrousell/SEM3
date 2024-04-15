@@ -41,15 +41,12 @@ If computation becomes intractable, we plan to implement our architecture on a s
 - **Stretch**: Implement the architecture with video & audio on multiple Atari games and perform interpretation
 - 
 ### Ethics: Choose 2 of the following bullet points to discuss
-- **What broader societal issues are relevant to your chosen problem space?**
-- **Why is Deep Learning a good approach to this problem?**
-- What is your dataset? Are there any concerns about how it was collected, or labeled? Is it representative? What kind of underlying historical or societal biases might it contain?
-- Who are the major “stakeholders” in this problem, and what are the consequences of mistakes made by your algorithm?
-- How are you planning to quantify or measure error or success? What implications does your quantification have?
 
-- This project has implications in robotics: if robotics get a lot better, there is the possibility of large automation and replacement of jobs
-- f
+How are you planning to quantify or measure error or success? What implications does your quantification have?
+In our project, we aim to gauge the efficacy of our model by quantifying its performance in playing the game. We will select a game that offers a quantifiable metric to delineate player success. To illustrate, consider Pacman, where advancement through various levels correlates with surviving successive rounds amidst increasing ghost challenges and game complexities. In this context, we intend to measure our model's success by pinpointing the round it manages to survive. Moreover, if our model performs well enough, we could benchmark our model against human proficiency. By comparing the model's performance with that of a human player, we aim to assess its ability to emulate human-level gameplay. Additionally, by investigating whether playing with sound influences the model's learning process, we delve into the role of auditory cues in gaming. Should the model without sound outperform its counterpart with sound, it would suggest that auditory elements might not significantly impact gameplay progression in the selected game. Such insights could inform game design considerations and shed light on the interplay between sensory modalities in gaming experiences.
 
+Why is Deep Learning a good approach to this problem?
+Deep learning is a good approach to this problem because it is a very high dimensional problem with many weights and inputs that need to be considered. Additionally, deep learning allows for feature learning where the model can learn useful features from raw sensory input, such as pixels in the game frames, without manual feature engineering. Deep learning models can learn hierarchical representations of data. In the context of games, this means that the model can learn to represent complex game states in a way that captures both low-level details like pixel values and high-level concepts such as game dynamics. 
 
 ### Division of labor: Briefly outline who will be responsible for which part(s) of the project.
 - All: impementing the architecture
