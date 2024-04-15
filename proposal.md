@@ -18,12 +18,12 @@ We will implement a similar sample-efficient architecture that also has the capa
 - [BBF Paper](https://arxiv.org/pdf/2111.00210.pdf)
     - This 2023 paper is the current SOTA on sample-efficient RL algorithms for Atari 2600 games. It and [EfficientZero](https://arxiv.org/abs/2111.00210) are the two architectures that have been achived human-level performance with just two hours of gameplay. Our plan is to follow mostly along with the architecture and training scheme of the BBF paper and to add audio inputs as well.
 - [OpenAI Gymnasium](https://gymnasium.farama.org/)
-  - [PR that added audio support](https://github.com/Farama-Foundation/Arcade-Learning-Environment/pull/233)
+  - [PR that added audio support](https://github.com/Farama-Foundation/Arcade-Learning-Environment/pull/233)git
 - [CrossModal Attentive Skill Learner](https://arxiv.org/pdf/1711.10314.pdf)
     - This paper develops an architecture that attends to both video and audio inputs to train a model to play the Atari games *Amidar* and *H.E.R.O.*. They also added support for audio to the [Arcade Learning Environment](https://github.com/Farama-Foundation/Arcade-Learning-Environment) (represented in the PR above), which we will take advantage of.
 
 ### Data: What data are you using (if any)?
-We plan on creating a dataset similar to the Atari 100k benchmark dataset, which consists of 100 thousand observations from an Atari game with a frame-skip of 4 (around 2 hours of game-time). The only change will be that we will also incorporate audio into the model.
+We plan on creating a dataset similar to the Atari 100k benchmark dataset, which consists of 100 thousand observations from an Atari game with a frame-skip of 4 (around 2 hours of game-time). The only change will be that we will also incorporate audio into the model. We will use the Ar
 
 ### Methodology: What is the architecture of your model?
 **Overall Architecture**
@@ -41,12 +41,12 @@ If computation becomes intractable, we plan to implement our architecture on a s
 - **Stretch**: Implement the architecture with video & audio on multiple Atari games and perform interpretation
 - 
 ### Ethics: Choose 2 of the following bullet points to discuss
-
-How are you planning to quantify or measure error or success? What implications does your quantification have?
+**How are you planning to quantify or measure error or success? What implications does your quantification have?**
 In our project, we aim to gauge the efficacy of our model by quantifying its performance in playing the game. We will select a game that offers a quantifiable metric to delineate player success. To illustrate, consider Pacman, where advancement through various levels correlates with surviving successive rounds amidst increasing ghost challenges and game complexities. In this context, we intend to measure our model's success by pinpointing the round it manages to survive. Moreover, if our model performs well enough, we could benchmark our model against human proficiency. By comparing the model's performance with that of a human player, we aim to assess its ability to emulate human-level gameplay. Additionally, by investigating whether playing with sound influences the model's learning process, we delve into the role of auditory cues in gaming. Should the model without sound outperform its counterpart with sound, it would suggest that auditory elements might not significantly impact gameplay progression in the selected game. Such insights could inform game design considerations and shed light on the interplay between sensory modalities in gaming experiences.
 
-Why is Deep Learning a good approach to this problem?
+**Why is Deep Learning a good approach to this problem?**
 Deep learning is a good approach to this problem because it is a very high dimensional problem with many weights and inputs that need to be considered. Additionally, deep learning allows for feature learning where the model can learn useful features from raw sensory input, such as pixels in the game frames, without manual feature engineering. Deep learning models can learn hierarchical representations of data. In the context of games, this means that the model can learn to represent complex game states in a way that captures both low-level details like pixel values and high-level concepts such as game dynamics. 
+
 
 ### Division of labor: Briefly outline who will be responsible for which part(s) of the project.
 - All: impementing the architecture
