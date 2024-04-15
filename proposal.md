@@ -3,8 +3,8 @@ Sample-Efficient play of Atari Games with Multi-Modal input
 
 ### Who: Names and logins of all your group members.
 - Noah Rousell: `nrousell`
-- Ryan Eng: 
-- Julian Beaudry: 
+- Ryan Eng: `reng1`
+- Julian Beaudry: `jbeaudry`
 - Adithya Sriram: `asrira17`
 
 ### Introduction: What problem are you trying to solve and why?
