@@ -7,6 +7,7 @@
   - Slightly beaten in 2023 by [BBF](https://arxiv.org/pdf/2305.19452v3.pdf)
 - [OpenAI Gymnasium](https://gymnasium.farama.org/)
   - [PR that added audio support](https://github.com/Farama-Foundation/Arcade-Learning-Environment/pull/233)
+  - [CASL fork of ALE with audio support](https://github.com/shayegano/Arcade-Learning-Environment)
 - [CrossModal Attentive Skill Learner](https://arxiv.org/pdf/1711.10314.pdf)
     - Amidar might be a good game to use
 

@@ -1,6 +1,6 @@
 import gymnasium as gym
 
-env = gym.make("Amidar-v4", render_mode="human")
+env = gym.make("Amidar-v4", render_mode="human", recording_for_user=True)
 observation, info = env.reset()
 
 for _ in range(1000):
@@ -23,6 +23,6 @@ env.close()
 # TODO - set up replay buffer, n-step temporal difference learning
 
 # TODO - BBF's resets / weight-interpolation
-# TODO - weight decay 
+# TODO - weight decay
 # TODO - receding update horizon: “the use of an update horizon (n-step) that decreases exponentially from 10 to 3 over the first 10K gradient steps following each network reset”
 # TODO - increasing discount factor
