@@ -9,3 +9,8 @@
   - [PR that added audio support](https://github.com/Farama-Foundation/Arcade-Learning-Environment/pull/233)
 - [CrossModal Attentive Skill Learner](https://arxiv.org/pdf/1711.10314.pdf)
     - Amidar might be a good game to use
+
+## Environment setup
+- `python -m venv env`
+- `source env/bin/activate`
+- `pip install tensorflow gymnasium gymnasium[atari] gymnasium[accept-rom-license]`
