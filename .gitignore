@@ -1,2 +1,4 @@
 env
 roms
+
+src/__pycache__

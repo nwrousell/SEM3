@@ -18,3 +18,5 @@
 
 
 - AutoROM to download ROMs manually (if using ALE instead): [docs](https://pypi.org/project/AutoROM/)
+
+- `tf-agents` not playing nice with keras fix: https://stackoverflow.com/questions/78233403/attributeerror-module-keras-tf-keras-keras-has-no-attribute-internal/78233592#78233592

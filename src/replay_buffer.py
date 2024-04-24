@@ -167,8 +167,6 @@ class ReplayBuffer:
                 self._episode_end_indices.discard((self.cursor(), i))  # If present
 
         self._add(observation, action, reward, terminal, *args)
-
-
     
     def _add(self, *args):
         """Internal add method to add to the storage arrays.
@@ -385,18 +383,6 @@ class ReplayBuffer:
   ):
         """Returns a batch of transitions (including any extra contents).
 
-        If get_transition_elements has been overridden and defines elements not
-        stored in self._store, an empty array will be returned and it will be
-        left to the child class to fill it. For example, for the child class
-        OutOfGraphPrioritizedReplayBuffer, the contents of the
-        sampling_probabilities are stored separately in a sum tree.
-        When the transition is terminal next_state_batch has undefined contents.
-        NOTE: This transition contains the indices of the sampled elements.
-        These
-        are only valid during the call to sample_transition_batch, i.e. they may
-        be used by subclasses of this replay buffer but may point to different
-        data
-        as soon as sampling is done.
         Args:
         batch_size: int, number of transitions returned. If None, the default
             batch_size will be used.
@@ -512,7 +498,15 @@ class ReplayBuffer:
             else:
                 continue
             outputs.append(output)
-            return outputs
+        return outputs
+    
+    def ravel_indices(self, indices_t, indices_b):
+        return np.ravel_multi_index(
+            (indices_t, indices_b), (self._replay_length, self._n_envs), mode='wrap'
+        )
+
+    def unravel_indices(self, indices):
+        return np.unravel_index(indices, (self._replay_length, self._n_envs))
     
     def get_transition_elements(self, batch_size=None, subseq_len=None):
         """Returns a 'type signature' for sample_transition_batch.
