@@ -155,10 +155,12 @@ class BBFModel(keras.Model):
         self.num_atoms = num_atoms
         self.width_scale = width_scale
         
-        # self.encoder = ScaledImpalaCNN(input_shape)
-        encoder_dims = (16,32,32)
-        self.encoder = ScaledImpalaCNN(input_shape, dims=encoder_dims, width_scale=self.width_scale)
-        latent_dim = encoder_dims[-1] * self.width_scale
+        # encoder_dims = (16,32,32) # pre-scaled!
+        # self.encoder = ScaledImpalaCNN(input_shape, dims=encoder_dims, width_scale=self.width_scale)
+        # latent_dim = encoder_dims[-1] * self.width_scale
+        
+        latent_dim = 64
+        self.encoder = DQN_CNN(input_shape)
         
         # head used to predict Q values
         # self.head = LinearHead(num_actions=num_actions, num_atoms=num_atoms, dtype=dtype, initializer=initializer)
@@ -180,9 +182,9 @@ class BBFModel(keras.Model):
             latent = renormalize(latent)
         return latent
 
-    def encode_project(self, x):
+    def encode_project(self, x, has_batch=False, is_rollout=False):
         latent = self.encode(x)
-        representation = self.flatten_spatial_latent(latent)
+        representation = self.flatten_spatial_latent(latent, has_batch, is_rollout)
         return self.project(representation)
 
     def project(self, x):
@@ -196,8 +198,6 @@ class BBFModel(keras.Model):
     
     def spr_rollout(self, latent, actions):
         _, pred_latents = self.transition_model(latent, actions)
-
-        print("pred latents", pred_latents.shape)
 
         representations = self.flatten_spatial_latent(pred_latents, True, True)
                 
@@ -226,15 +226,12 @@ class BBFModel(keras.Model):
     
     def __call__(self, x, do_rollout=False, actions=None):
         spatial_latent = self.encode(x)
-        
-        print("post-encoder shape:", spatial_latent.shape)
-        
+                
         representation = self.flatten_spatial_latent(spatial_latent, True) # changed has_batch to be True here (different from BBF code)
         
         # Single hidden layer
         x = self.project(representation)
         x = ReLU()(x)
-        print("post projection:", x.shape)
 
         if do_rollout:
             spatial_latent = self.spr_rollout(spatial_latent, actions)

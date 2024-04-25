@@ -6,7 +6,29 @@ from networks import BBFModel
 from replay_buffer import ReplayBuffer
 import tensorflow as tf
 import numpy as np
+import math
 
+# https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L856
+def get_target_q_values(rewards, terminals, cumulative_gamma, target_network, next_states, update_horizon):
+    """Builds the DQN target Q-values."""
+    is_terminal_multiplier = 1.0 - terminals.astype(np.float32)
+    
+    # Incorporate terminal state to discount factor.
+    gamma_with_terminal = cumulative_gamma * is_terminal_multiplier # (update_horizon, )
+
+    q_values = tf.vectorized_map(lambda s: target_network(s)[0], next_states) # (update_horizon, batch_size, num_actions)
+
+    replay_q_values = tf.reduce_max(q_values, axis=2) # (update_horizon, batch_size)
+    replay_q_values = tf.transpose(replay_q_values) # (batch_size, update_horizon)
+        
+    # TODO - rewrite with vectorized operations to replace for loop
+    target = np.zeros((next_states.shape[1], update_horizon))
+    for k in range(1, update_horizon+1):
+        prefix = tf.reduce_sum(rewards[:, :k] * gamma_with_terminal[:, :k], axis=1) # multiply discounts over rewards up to k and sum along time dimension
+        target_pred = replay_q_values[:, k-1]
+        target[:, k-1] = prefix + target_pred
+
+    return tf.stop_gradient(target) # (batch_size, update_horizon)
 
 def train_model():
     # env = gym.make("Amidar-v4", render_mode="human")
@@ -25,40 +47,53 @@ def train_model():
     ]
     
     # Simplifications:
-    # random latent and hidden dim
     # stack_size = 1 / no pre-processing (grayscale, down-scaling, etc.)
-    # n=1 for computing TD error
     # No target network (so no EMAs)
     # No regularization (weight decay, shrink-and-perturb)
     # No dueling or distributional shenanigans
+    # no frame-skip
     
     num_env_steps = 1000
     replay_ratio = 2
     batch_size = 32
     stack_size = 1
     subseq_len = 3
-    update_horizon= 1 
+    gamma = 0.97
+    update_horizon = subseq_len
     hidden_dim = 2048
-    num_atoms = 1
+    num_atoms = 1 # for distributional, ignore for now
+    spr_loss_weight = 2
     bbf = BBFModel(input_shape=obs_shape, 
                    num_actions=n_valid_actions, 
                    hidden_dim=hidden_dim, 
                    num_atoms=num_atoms
                    )
     
+    # _input = tf.keras.layers.Input(obs_shape)
+    # actions = tf.keras.layers.Input(shape=(n_valid_actions,))    
+    # q_values, preds, rep = bbf(_input, do_rollout=True, actions=actions)
+    # bbf = tf.keras.Model(
+    #     inputs=[_input, actions],
+    #     outputs=[q_values, preds, rep]
+    # )
+    
     replay_buffer = ReplayBuffer(data_spec, 
                                  replay_capacity=10000, 
                                  batch_size=batch_size, 
                                  update_horizon=update_horizon, 
-                                 gamma=0.97, 
+                                 gamma=gamma, 
                                  n_envs=1, 
                                  stack_size=stack_size, # ? no idea what this is
-                                 subseq_len=subseq_len, # ? ditto
+                                 subseq_len=subseq_len,
                                  observation_shape=obs_shape,
                                  rng=np.random.default_rng(seed=17)
                                 )
     
     observation, info = env.reset()
+    
+    cumulative_gamma = np.array([math.pow(gamma, i) for i in range(1, update_horizon+1)], dtype=np.float32)
+    
+    huber_loss = tf.keras.losses.Huber()
     
     for i in range(num_env_steps):
         
@@ -84,54 +119,58 @@ def train_model():
             actions, # (batch_size, subseq_len)
             rewards, # (batch_size, subseq_len)
             returns, # (batch_size, subseq_len)
-            discounts, # ! don't think this is being computed correctly
+            discounts,
             next_states, # (batch_size, subseq_len, *obs_shape, stack_size)
             next_actions, # (batch_size, subseq_len)
             next_rewards, # (batch_size, subseq_len)
-            terminal, # (batch_size, subseq_len)
+            terminals, # (batch_size, subseq_len)
             same_trajectory, # (batch_size, subseq_len)
             indices # (batch_size, )
-            ) = replay_buffer.sample_transition_batch(update_horizon=1)
+            ) = replay_buffer.sample_transition_batch()
+            
+            # remove stack dimension
+            observations = np.squeeze(observations)
+            next_states = np.squeeze(next_states)
+            # swap batch and time dimensions
+            next_states = tf.transpose(next_states, perm=[1,0,2,3,4])
+                        
+            current_state = observations[:,0,:,:,:]
             
             # with tape active, FF to predict Q values and future state representations
+            with tf.GradientTape() as tape:
+                q_values, spr_predictions, _ = bbf(current_state, do_rollout=True, actions=next_actions)
+                
+                spr_targets = tf.vectorized_map(lambda x: bbf.encode_project(x, True, False), next_states)
+                
+                # compute TD error
+                target = get_target_q_values(rewards, terminals, cumulative_gamma, bbf, next_states, update_horizon)
+                first_actions = actions[:, 0]
+                chosen_q = tf.gather(q_values, indices=first_actions, axis=1, batch_dims=1)
+                
+                # ? do we compare the chosen_q to each of the three targets?
+                td_error = tf.vectorized_map(lambda _target: huber_loss(_target, chosen_q), tf.transpose(target))
+                
+                # compute SPR Loss
+                spr_predictions = spr_predictions / tf.norm(spr_predictions, axis=-1, keepdims=True)
+                spr_targets = spr_targets / tf.norm(spr_targets, axis=-1, keepdims=True)
+                spr_loss = tf.reduce_sum(tf.pow(spr_predictions - spr_targets, 2), axis=-1)
+                spr_loss = tf.reduce_sum(spr_loss * tf.cast(tf.transpose(same_trajectory, [1,0]), dtype=np.float32), axis=-1)
+                
+                loss = td_error + spr_loss_weight * spr_loss
+                mean_loss = tf.reduce_mean(loss)
             
-            observations = np.squeeze(observations)
-                        
-            print("observations shape, next_states shape:",observations.shape, next_states.shape)
+            gradients = tape.gradient(mean_loss, bbf.trainable_variables)
+            print(gradients)
             
-            print("actions shape, next_actions shape:", actions.shape, next_actions.shape)
-            print("discounts shape:", discounts.shape, discounts[0])
+            all_losses = {
+                "Total Loss": mean_loss.numpy(),
+                "TD Error": tf.reduce_mean(td_error).numpy(),
+                "SPR Loss": tf.reduce_mean(spr_loss).numpy()
+            }
+            print(all_losses)
             
-            initial_observation = observations[:,0,:,:,:]
-            q_values, pred_spatial_latents, representation = bbf(initial_observation, do_rollout=True, actions=next_actions)
-            print("q values shape:", q_values.shape)
-            print("pred latent shape:", pred_spatial_latents.shape)
-            print("representation shape:", representation.shape)
+                
             
-            # target_spatial_latents = encode_project(new_states)
-            
-            # print("actions shape", actions.shape)
-            # state_predictions = bbf.spr_rollout(latent, actions)
-            # print("state_predictions shape:", state_predictions.shape)
-            
-            
-            
-            # then compute TD error (RL Loss) and SPR Loss
-            # q_values, spr_predictions, _ = get_q_values(
-            #     q_online, current_state, actions[:, :-1], use_spr, batch_rngs
-            # )
-            # q_values = jnp.squeeze(q_values)
-            # replay_chosen_q = jax.vmap(lambda x, y: x[y])(q_values, actions[:, 0])
-            # dqn_loss = jax.vmap(losses.huber_loss)(target, replay_chosen_q)
-            # td_error = dqn_loss
-            
-            # spr_predictions = spr_predictions.transpose(1, 0, 2)
-            # spr_predictions = spr_predictions / jnp.linalg.norm(
-            #     spr_predictions, 2, -1, keepdims=True)
-            # spr_targets = spr_targets / jnp.linalg.norm(
-            #     spr_targets, 2, -1, keepdims=True)
-            # spr_loss = jnp.power(spr_predictions - spr_targets, 2).sum(-1)
-            # spr_loss = (spr_loss * same_traj_mask.transpose(1, 0)).mean(0)
             
             # compute and apply gradients
                 
