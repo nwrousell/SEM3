@@ -30,6 +30,24 @@ def get_target_q_values(rewards, terminals, cumulative_gamma, target_network, ne
 
     return tf.stop_gradient(target) # (batch_size, update_horizon)
 
+
+huber_loss = tf.keras.losses.Huber()
+
+def compute_spr_loss(spr_targets, spr_predictions, same_trajectory):
+    spr_predictions = spr_predictions / tf.norm(spr_predictions, axis=-1, keepdims=True)
+    spr_targets = spr_targets / tf.norm(spr_targets, axis=-1, keepdims=True)
+    spr_loss = tf.reduce_sum(tf.pow(spr_predictions - spr_targets, 2), axis=-1)
+    spr_loss = tf.reduce_sum(spr_loss * tf.cast(tf.transpose(same_trajectory, [1,0]), dtype=np.float32), axis=-1)
+    
+    return spr_loss
+
+def compute_RL_loss(target_q_values, q_values, actions):
+    first_actions = actions[:, 0]
+    chosen_q = tf.gather(q_values, indices=first_actions, axis=1, batch_dims=1)
+    td_error = tf.vectorized_map(lambda _target: huber_loss(_target, chosen_q), tf.transpose(target_q_values))
+    
+    return td_error
+
 def train_model():
     # env = gym.make("Amidar-v4", render_mode="human")
     env = gym.make("Assault-v4", render_mode="human")
@@ -69,14 +87,6 @@ def train_model():
                    num_atoms=num_atoms
                    )
     
-    # _input = tf.keras.layers.Input(obs_shape)
-    # actions = tf.keras.layers.Input(shape=(n_valid_actions,))    
-    # q_values, preds, rep = bbf(_input, do_rollout=True, actions=actions)
-    # bbf = tf.keras.Model(
-    #     inputs=[_input, actions],
-    #     outputs=[q_values, preds, rep]
-    # )
-    
     replay_buffer = ReplayBuffer(data_spec, 
                                  replay_capacity=10000, 
                                  batch_size=batch_size, 
@@ -90,10 +100,14 @@ def train_model():
                                 )
     
     observation, info = env.reset()
+    observation = tf.convert_to_tensor(tf.expand_dims(observation, axis=0))
+    _ = bbf(observation, do_rollout=True, actions=np.random.randint(0, n_valid_actions, (1, subseq_len)))
+    # print(bbf.layers)
+    print("WEIGHTS:", bbf.get_weights())
+    print(bbf.summary())
     
+    optimizer = tf.keras.optimizers.Adam()
     cumulative_gamma = np.array([math.pow(gamma, i) for i in range(1, update_horizon+1)], dtype=np.float32)
-    
-    huber_loss = tf.keras.losses.Huber()
     
     for i in range(num_env_steps):
         
@@ -140,27 +154,22 @@ def train_model():
             with tf.GradientTape() as tape:
                 q_values, spr_predictions, _ = bbf(current_state, do_rollout=True, actions=next_actions)
                 
+                # compute targets
                 spr_targets = tf.vectorized_map(lambda x: bbf.encode_project(x, True, False), next_states)
-                
-                # compute TD error
+                # ? should we be passing in next_rewards instead of rewards
                 target = get_target_q_values(rewards, terminals, cumulative_gamma, bbf, next_states, update_horizon)
-                first_actions = actions[:, 0]
-                chosen_q = tf.gather(q_values, indices=first_actions, axis=1, batch_dims=1)
                 
-                # ? do we compare the chosen_q to each of the three targets?
-                td_error = tf.vectorized_map(lambda _target: huber_loss(_target, chosen_q), tf.transpose(target))
-                
-                # compute SPR Loss
-                spr_predictions = spr_predictions / tf.norm(spr_predictions, axis=-1, keepdims=True)
-                spr_targets = spr_targets / tf.norm(spr_targets, axis=-1, keepdims=True)
-                spr_loss = tf.reduce_sum(tf.pow(spr_predictions - spr_targets, 2), axis=-1)
-                spr_loss = tf.reduce_sum(spr_loss * tf.cast(tf.transpose(same_trajectory, [1,0]), dtype=np.float32), axis=-1)
+                # compute TD error and SPR loss
+                td_error = compute_RL_loss(target, q_values, actions)
+                spr_loss = compute_spr_loss(spr_targets, spr_predictions, same_trajectory)
                 
                 loss = td_error + spr_loss_weight * spr_loss
                 mean_loss = tf.reduce_mean(loss)
             
+            train_vars = bbf.trainable_variables
+            # print("TRAINABLE VARIABLES:", train_vars)
             gradients = tape.gradient(mean_loss, bbf.trainable_variables)
-            print(gradients)
+            optimizer.apply_gradients(zip(gradients, bbf.trainable_variables))
             
             all_losses = {
                 "Total Loss": mean_loss.numpy(),
@@ -168,12 +177,7 @@ def train_model():
                 "SPR Loss": tf.reduce_mean(spr_loss).numpy()
             }
             print(all_losses)
-            
-                
-            
-            
-            # compute and apply gradients
-                
+                            
     # update target networks with EMAs
     
     # exponentially interpolate discount factor and update horizon
@@ -185,40 +189,9 @@ def train_model():
 if __name__ == "__main__":
     train_model()    
     
-# network_def that can be given parameters (so can be used easily for both online / target networks)
-
-# how do they use the stack / subseq len
-# where do they compute the losses
 
 # decay scheduler: https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L311
 
 # select action: https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L377
 
 # loss function: https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L674
-
-# sanity check number of params and encoder (ImpalaCNN) output dimensions - the encoder output is a much higher dimension than the original CNN model
-
-# TODO
-# What is the resulting dimensions after the ImpalaCNN
-# how does the transition work?
-
-# BBF regularization stuff
-# does BBF combine / preprocess observations like Mnih 2015?
-
-# how to setup the replay buffer and actually perform training
-# optimize q-learning for all actions at once?
-
-# how does CASL work fully with the options/hierarichal RL
-
-
-# TODO: code losses
-# TODO: replay buffer
-# TODO: make BBF agent
-# TODO: set up bare-bones training loop, test
-
-# TODO: add EMAs for target encoder, target projection, target Q network
-# TODO: find out and code preprocess function for observations
-# TODO: add weight decay
-# TODO: add exponential schedule for gamma/n
-# TODO: add shrink-and-perturb
-# TODO: code augmentation fn for future observations

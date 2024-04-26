@@ -1,6 +1,5 @@
 import tensorflow as tf
-import keras
-from keras.layers import Conv2D, MaxPool2D, BatchNormalization, ReLU, LayerNormalization, Input, Dropout, Dense, Lambda
+from tensorflow.keras.layers import Conv2D, MaxPool2D, BatchNormalization, ReLU, LayerNormalization, Input, Dropout, Dense, Lambda
 import numpy as np
 
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L315
@@ -65,47 +64,53 @@ def ScaledImpalaCNN(
         x = residual_stage(x, dim=d, width_scale=width_scale, num_blocks=2, initializer=initializer, norm_type=norm_type, dropout=dropout)
     
     x = ReLU()(x)
-    return keras.Model(inputs=inputs, outputs=x)
+    return tf.keras.Model(inputs=inputs, outputs=x, name="Impala CNN (encoder)")
     
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L325
-class ConvTransitionModelCell:
+class ConvTransitionModel(tf.keras.Model):
     def __init__(self, num_actions: int, latent_dim: int, renormalize: bool, initializer=tf.initializers.GlorotUniform(), dtype=np.float32):
         self.num_actions = num_actions
         self.latent_dim = latent_dim
         self.renormalize = renormalize
         self.initializer = initializer
-    
-    def __call__(self, x, action):
+        
         sizes = [self.latent_dim, self.latent_dim]
         kernel_sizes = [3, 3]
         stride_sizes = [1, 1]
+        self.conv_layers = []
+        for i in range(len(sizes)):
+            self.conv_layers.append(
+                Conv2D(filters=sizes[i],
+                    kernel_size=kernel_sizes[i],
+                    strides=stride_sizes[i],
+                    kernel_initializer=self.initializer,
+                    padding='SAME',
+                    activation='relu'
+                ))
         
+    
+    def __call__(self, x, action):
         action_onehot = tf.one_hot(action, self.num_actions)
         action_onehot = tf.reshape(action_onehot, [action_onehot.shape[0], 1, 1, action_onehot.shape[1]])
         action_onehot = tf.broadcast_to(action_onehot, [action_onehot.shape[0], x.shape[-3], x.shape[-2], action_onehot.shape[-1]])
         x = tf.concat([x, action_onehot], -1)
-        for i in range(len(sizes)):
-            x = Conv2D(filters=sizes[i], 
-                       kernel_size=kernel_sizes[i], 
-                       strides=stride_sizes[i], 
-                       kernel_initializer=self.initializer,
-                       padding='SAME'
-                       )(x)
-            x = ReLU()(x)
+        for layer in self.conv_layers:
+            x = layer(x)
                             
         if self.renormalize:
             raise Exception("Renormalization has not been implemented yet (go do that Noah)")
         
         return x, x
     
-class TransitionModel(keras.Model):
+class TransitionModel(tf.keras.layers.Layer):
     def __init__(self, num_actions: int, latent_dim: int, renormalize: bool, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
+        super().__init__()
         self.num_actions = num_actions
         self.latent_dim = latent_dim
         self.renormalize = renormalize
         self.initializer = initializer
         
-        self.ConvTMCell = ConvTransitionModelCell(num_actions, latent_dim, renormalize, initializer, dtype=dtype)
+        self.ConvTMCell = ConvTransitionModel(num_actions, latent_dim, renormalize, initializer, dtype=dtype)
     
     def __call__(self, x, actions):
         """Predict k future states given initial state and k actions"""
@@ -114,6 +119,16 @@ class TransitionModel(keras.Model):
             x, pred_state = self.ConvTMCell(x, actions[:,i])
             states.append(pred_state)
         return x, tf.stack(states)
+
+    def build(self, input_shape):
+        # Since ConvTransitionModel is the only trainable parameter,
+        # we treat it as a single weight and add it to the layer's weights
+        self.ConvTMCell.build(input_shape)
+        self.ConvTMCell.trainable = True
+        self._trainable_weights.extend(self.ConvTMCell.trainable_weights)
+        self._non_trainable_weights.extend(self.ConvTMCell.non_trainable_weights)
+
+        super(TransitionModel, self).build(input_shape)
 
 def DQN_CNN(input_shape, padding='VALID', dims=(32, 64, 64), width_scale=1, dropout=0.0, initializer=tf.initializers.GlorotUniform()):
     inputs = Input(shape=input_shape)
@@ -132,13 +147,11 @@ def DQN_CNN(input_shape, padding='VALID', dims=(32, 64, 64), width_scale=1, drop
         x = Dropout(dropout)(x)
         x = ReLU()(x)
     outputs = x
-    return keras.Model(inputs=inputs, outputs=outputs)
-        
-        
+    return tf.keras.Model(inputs=inputs, outputs=outputs, name="encoder_DQN")
         
 
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L242
-class LinearHead(keras.Model):
+class LinearHead(tf.keras.Model):
     def __init__(self, num_actions, num_atoms, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
         self.advantage = Dense(units = num_actions * num_atoms, kernel_initializer=initializer, dtype=dtype)
         
@@ -147,9 +160,9 @@ class LinearHead(keras.Model):
         return logits
         
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L697
-class BBFModel(keras.Model):
+class BBFModel(tf.keras.Model):
     def __init__(self, input_shape, num_actions, hidden_dim, num_atoms, width_scale=4, renormalize=False, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
-        
+        super().__init__()
         self.renormalize = renormalize
         self.hidden_dim = hidden_dim
         self.num_atoms = num_atoms
@@ -164,16 +177,16 @@ class BBFModel(keras.Model):
         
         # head used to predict Q values
         # self.head = LinearHead(num_actions=num_actions, num_atoms=num_atoms, dtype=dtype, initializer=initializer)
-        self.head = Dense(units = num_actions * num_atoms)
+        self.head = Dense(units = num_actions * num_atoms, name="head")
         
         # transition model
         self.transition_model = TransitionModel(num_actions=num_actions, latent_dim=latent_dim, renormalize=renormalize, initializer=initializer)
         
         # projection layer (SPR uses the first layer of the Q_head for this)
-        self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, dtype=dtype)
+        self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, dtype=dtype, name="projection")
         
         # predictor
-        self.predictor = Dense(units = self.hidden_dim, kernel_initializer=initializer)
+        self.predictor = Dense(units = self.hidden_dim, kernel_initializer=initializer, name="predictor")
     
     def encode(self, x):
         latent = self.encoder(x)
@@ -211,13 +224,16 @@ class BBFModel(keras.Model):
         #     representation = self.embedder(spatial_latent)
         if has_batch:
             if is_rollout:
+                # representation = Lambda(lambda x, y: tf.reshape(x, y))(spatial_latent, [spatial_latent.shape[0], spatial_latent.shape[1], -1])
                 representation = tf.reshape(spatial_latent, [spatial_latent.shape[0], spatial_latent.shape[1], -1])
             else:
+                # representation = Lambda(lambda x, y: tf.reshape(x, y))(spatial_latent, [spatial_latent.shape[0], -1])
                 representation = tf.reshape(spatial_latent, [spatial_latent.shape[0], -1])
             # representation = spatial_latent.reshape(spatial_latent.shape[0], -1)
         else:
             # representation = spatial_latent.reshape(-1)
             representation = tf.reshape(spatial_latent, [-1])
+            # representation = Lambda(lambda x, y: tf.reshape(x, y))(spatial_latent, [-1])
             
         # logging.info(
         #     'Flattened representation shape: %s', str(representation.shape)
