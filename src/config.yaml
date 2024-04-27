@@ -1,0 +1,19 @@
+game: 'Assault-v4' # 'Amidar-v4' | 'Assault-v4'
+batch_size: 64
+stack_size: 1
+subseq_len: 10
+tau: 0.99 # how much to interpolate weights for the EMA of the target network
+eps_greedy: 0.05 # what percent of the time to choose a random action during data collection
+initial_collect_steps: 200
+
+hidden_dim: 2048
+num_atoms: 1 # for distributional, ignore for now
+spr_loss_weight: 2 # relative to RL loss
+
+encoder_network: "DQN" # 'DQN' (3-layer CNN) or 'ImpalaWide' (15-layer ResNet)
+
+start_gamma: 0.97
+end_gamma: 0.997
+start_update_horizon: 10
+end_update_horizon: 3
+replay_ratio: 2

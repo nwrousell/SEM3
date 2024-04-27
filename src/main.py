@@ -2,11 +2,12 @@ import gymnasium as gym
 # from tf_agents.trajectories import trajectory
 # import tensorflow as tf
 # from tf_agents.replay_buffers import tf_uniform_replay_buffer
-from networks import BBFModel
+from networks import BBFModel, interpolate_weights
 from replay_buffer import ReplayBuffer
 import tensorflow as tf
 import numpy as np
 import math
+import yaml
 
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L856
 def get_target_q_values(rewards, terminals, cumulative_gamma, target_network, next_states, update_horizon):
@@ -48,9 +49,27 @@ def compute_RL_loss(target_q_values, q_values, actions):
     
     return td_error
 
-def train_model():
-    # env = gym.make("Amidar-v4", render_mode="human")
-    env = gym.make("Assault-v4", render_mode="human")
+def train_model(args):
+    game = args['game']
+    replay_ratio = args['replay_ratio']
+    batch_size = args['batch_size']
+    stack_size = args['stack_size']
+    subseq_len = args['subseq_len']
+    tau = args['tau']
+    eps_greedy = args['eps_greedy']
+    initial_collect_steps = args['initial_collect_steps']
+    start_gamma = args['start_gamma']
+    end_gamma = args['end_gamma']
+    start_update_horizon = args['start_update_horizon']
+    end_update_horizon = args['end_update_horizon']
+    hidden_dim = args['hidden_dim']
+    num_atoms = args['num_atoms']
+    spr_loss_weight = args['spr_loss_weight']
+    encoder_network = args['encoder_network']
+    
+    print("training model with args:", args)
+    
+    env = gym.make(game, render_mode="human")
 
     obs_shape = env.observation_space.shape
     print("observation shape: ", obs_shape)
@@ -64,34 +83,26 @@ def train_model():
         tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
     ]
     
-    # Simplifications:
-    # stack_size = 1 / no pre-processing (grayscale, down-scaling, etc.)
-    # No target network (so no EMAs)
-    # No regularization (weight decay, shrink-and-perturb)
-    # No dueling or distributional shenanigans
-    # no frame-skip
+    bbf_online = BBFModel(input_shape=obs_shape, 
+                          encoder_network=encoder_network,
+                          num_actions=n_valid_actions, 
+                          hidden_dim=hidden_dim, 
+                          num_atoms=num_atoms
+                        )
     
-    num_env_steps = 1000
-    replay_ratio = 2
-    batch_size = 32
-    stack_size = 1
-    subseq_len = 3
-    gamma = 0.97
-    update_horizon = subseq_len
-    hidden_dim = 2048
-    num_atoms = 1 # for distributional, ignore for now
-    spr_loss_weight = 2
-    bbf = BBFModel(input_shape=obs_shape, 
-                   num_actions=n_valid_actions, 
-                   hidden_dim=hidden_dim, 
-                   num_atoms=num_atoms
-                   )
+    bbf_target = BBFModel(input_shape=obs_shape, 
+                          encoder_network=encoder_network,
+                          num_actions=n_valid_actions, 
+                          hidden_dim=hidden_dim, 
+                          num_atoms=num_atoms
+                        )
+    bbf_target.trainable = False
     
     replay_buffer = ReplayBuffer(data_spec, 
                                  replay_capacity=10000, 
                                  batch_size=batch_size, 
-                                 update_horizon=update_horizon, 
-                                 gamma=gamma, 
+                                 update_horizon=start_update_horizon, 
+                                 gamma=start_gamma, 
                                  n_envs=1, 
                                  stack_size=stack_size, # ? no idea what this is
                                  subseq_len=subseq_len,
@@ -99,20 +110,34 @@ def train_model():
                                  rng=np.random.default_rng(seed=17)
                                 )
     
-    observation, info = env.reset()
+    observation, _ = env.reset()
     observation = tf.convert_to_tensor(tf.expand_dims(observation, axis=0))
-    _ = bbf(observation, do_rollout=True, actions=np.random.randint(0, n_valid_actions, (1, subseq_len)))
-    # print(bbf.layers)
-    print("WEIGHTS:", bbf.get_weights())
-    print(bbf.summary())
+    _ = bbf_online(observation, do_rollout=True, actions=np.random.randint(0, n_valid_actions, (1, subseq_len)))
+    _ = bbf_target(observation, do_rollout=True, actions=np.random.randint(0, n_valid_actions, (1, subseq_len)))
+
     
-    optimizer = tf.keras.optimizers.Adam()
-    cumulative_gamma = np.array([math.pow(gamma, i) for i in range(1, update_horizon+1)], dtype=np.float32)
+    print(bbf_online.summary())
     
-    for i in range(num_env_steps):
+    # initially, set target network to clone of online network
+    online_weights = bbf_online.get_weights()
+    bbf_target.set_weights(online_weights)
+    
+    
+    optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
+    cumulative_gamma = np.array([math.pow(start_gamma, i) for i in range(1, start_update_horizon+1)], dtype=np.float32)
+    
+    for i in range(10000):
         
-        # selection action based on policy
-        action = np.random.randint(0, n_valid_actions)
+        # select action based on policy
+        if replay_buffer.num_elements() < initial_collect_steps:
+            action = np.random.randint(0, n_valid_actions)
+        else:
+            prob = np.random.random()
+            if prob < eps_greedy:
+                action = np.random.randint(0, n_valid_actions)
+            else:
+                q_values, _, _ = bbf_online(observation)
+                action = tf.argmax(q_values)
         
         # step environment, deposit experience in replay buffer
         observation, reward, terminated, truncated, info = env.step(action)
@@ -122,10 +147,9 @@ def train_model():
         
         # perform gradient updates by sampling from replay buffer (if possible):
         # ! idk if this is how it's done --> look at their training loop
-        for _ in range(replay_ratio):
+        for _ in range(1):
             print("elements in buffer:", replay_buffer.num_elements())
-            # skip gradient update until there are enough elements in the buffer
-            if replay_buffer.num_elements() < batch_size:
+            if replay_buffer.num_elements() < initial_collect_steps:
                 break
             
             # sample a batch from the replay buffer
@@ -152,42 +176,49 @@ def train_model():
             
             # with tape active, FF to predict Q values and future state representations
             with tf.GradientTape() as tape:
-                q_values, spr_predictions, _ = bbf(current_state, do_rollout=True, actions=next_actions)
+                q_values, spr_predictions, _ = bbf_online(tf.convert_to_tensor(current_state), do_rollout=True, actions=tf.convert_to_tensor(next_actions))
                 
                 # compute targets
-                spr_targets = tf.vectorized_map(lambda x: bbf.encode_project(x, True, False), next_states)
+                spr_targets = tf.vectorized_map(lambda x: bbf_target.encode_project(x, True, False), tf.convert_to_tensor(next_states))
                 # ? should we be passing in next_rewards instead of rewards
-                target = get_target_q_values(rewards, terminals, cumulative_gamma, bbf, next_states, update_horizon)
+                target = get_target_q_values(tf.convert_to_tensor(next_rewards), terminals, tf.convert_to_tensor(cumulative_gamma), bbf_target, tf.convert_to_tensor(next_states), start_update_horizon)
                 
                 # compute TD error and SPR loss
                 td_error = compute_RL_loss(target, q_values, actions)
-                spr_loss = compute_spr_loss(spr_targets, spr_predictions, same_trajectory)
+                spr_loss = compute_spr_loss(spr_targets, spr_predictions, tf.convert_to_tensor(same_trajectory))
                 
                 loss = td_error + spr_loss_weight * spr_loss
                 mean_loss = tf.reduce_mean(loss)
             
-            train_vars = bbf.trainable_variables
-            # print("TRAINABLE VARIABLES:", train_vars)
-            gradients = tape.gradient(mean_loss, bbf.trainable_variables)
-            optimizer.apply_gradients(zip(gradients, bbf.trainable_variables))
+            gradients = tape.gradient(mean_loss, bbf_online.trainable_variables)
+            optimizer.apply_gradients(zip(gradients, bbf_online.trainable_variables))
             
             all_losses = {
                 "Total Loss": mean_loss.numpy(),
                 "TD Error": tf.reduce_mean(td_error).numpy(),
                 "SPR Loss": tf.reduce_mean(spr_loss).numpy()
             }
+            
             print(all_losses)
-                            
-    # update target networks with EMAs
-    
-    # exponentially interpolate discount factor and update horizon
-    
-    # if i % 40000 == 0: shrink_and_perturb
-    
-    # evaluate performance and log
+            
+            # update target networks with EMAs
+            # ? this is kinda slow...
+            if i % 10 == 0:
+                new_target_weights = interpolate_weights(bbf_target.get_weights(), bbf_online.get_weights(), tau)
+                bbf_target.set_weights(new_target_weights)
+        
+        # exponentially interpolate discount factor and update horizon
+        
+        # if i % 40000 == 0: shrink_and_perturb
+        
+        # evaluate performance and log
 
 if __name__ == "__main__":
-    train_model()    
+    config_fname = "config.yaml"
+    with open(config_fname, 'r') as file:
+        args = yaml.safe_load(file)
+        
+    train_model(args)    
     
 
 # decay scheduler: https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L311

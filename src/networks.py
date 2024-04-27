@@ -67,68 +67,63 @@ def ScaledImpalaCNN(
     return tf.keras.Model(inputs=inputs, outputs=x, name="Impala CNN (encoder)")
     
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L325
-class ConvTransitionModel(tf.keras.Model):
-    def __init__(self, num_actions: int, latent_dim: int, renormalize: bool, initializer=tf.initializers.GlorotUniform(), dtype=np.float32):
+class ConvTransitionModel(tf.keras.layers.Layer):
+    def __init__(self, name, num_actions: int, latent_dim: int, renormalize: bool, initializer=tf.initializers.GlorotUniform(), dtype=np.float32):
+        super(ConvTransitionModel, self).__init__(name=name)
         self.num_actions = num_actions
         self.latent_dim = latent_dim
         self.renormalize = renormalize
         self.initializer = initializer
-        
-        sizes = [self.latent_dim, self.latent_dim]
-        kernel_sizes = [3, 3]
-        stride_sizes = [1, 1]
-        self.conv_layers = []
-        for i in range(len(sizes)):
-            self.conv_layers.append(
-                Conv2D(filters=sizes[i],
-                    kernel_size=kernel_sizes[i],
-                    strides=stride_sizes[i],
-                    kernel_initializer=self.initializer,
-                    padding='SAME',
-                    activation='relu'
-                ))
-        
+        self.conv1 = Conv2D(filters=self.latent_dim, kernel_size=3, strides=1, kernel_initializer=self.initializer,padding="SAME", activation="relu")
+        self.conv2 = Conv2D(filters=self.latent_dim, kernel_size=3, strides=1, kernel_initializer=self.initializer,padding="SAME", activation="relu")
     
     def __call__(self, x, action):
+        tf.print('\ncalling call method')
+        tf.print(f'input shape : {x.shape}')
         action_onehot = tf.one_hot(action, self.num_actions)
         action_onehot = tf.reshape(action_onehot, [action_onehot.shape[0], 1, 1, action_onehot.shape[1]])
         action_onehot = tf.broadcast_to(action_onehot, [action_onehot.shape[0], x.shape[-3], x.shape[-2], action_onehot.shape[-1]])
         x = tf.concat([x, action_onehot], -1)
-        for layer in self.conv_layers:
-            x = layer(x)
+        
+        x = self.conv1(x)
+        x = self.conv2(x)
                             
         if self.renormalize:
-            raise Exception("Renormalization has not been implemented yet (go do that Noah)")
+            raise Exception("Renormalization has not been implemented yet")
+        
+        tf.print(f'output shape : {x.shape}')
         
         return x, x
     
-class TransitionModel(tf.keras.layers.Layer):
-    def __init__(self, num_actions: int, latent_dim: int, renormalize: bool, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
-        super().__init__()
-        self.num_actions = num_actions
-        self.latent_dim = latent_dim
-        self.renormalize = renormalize
-        self.initializer = initializer
-        
-        self.ConvTMCell = ConvTransitionModel(num_actions, latent_dim, renormalize, initializer, dtype=dtype)
+    def compute_output_shape(self, input_shape):
+        return self.model.compute_output_shape(input_shape)
     
-    def __call__(self, x, actions):
-        """Predict k future states given initial state and k actions"""
-        states = []
-        for i in range(actions.shape[1]):
-            x, pred_state = self.ConvTMCell(x, actions[:,i])
-            states.append(pred_state)
-        return x, tf.stack(states)
+# class TransitionModel(tf.keras.layers.Layer):
+#     def __init__(self, num_actions: int, latent_dim: int, renormalize: bool, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
+#         super().__init__()
+#         self.num_actions = num_actions
+#         self.latent_dim = latent_dim
+#         self.renormalize = renormalize
+#         self.initializer = initializer
+        
+#         self.ConvTMCell = ConvTransitionModel(num_actions, latent_dim, renormalize, initializer, dtype=dtype)
+    
+#     def __call__(self, x, actions):
+#         """Predict k future states given initial state and k actions"""
+#         states = []
+#         for i in range(actions.shape[1]):
+#             x, pred_state = self.ConvTMCell(x, actions[:,i])
+#             states.append(pred_state)
+#         return x, tf.stack(states)
 
-    def build(self, input_shape):
-        # Since ConvTransitionModel is the only trainable parameter,
-        # we treat it as a single weight and add it to the layer's weights
-        self.ConvTMCell.build(input_shape)
-        self.ConvTMCell.trainable = True
-        self._trainable_weights.extend(self.ConvTMCell.trainable_weights)
-        self._non_trainable_weights.extend(self.ConvTMCell.non_trainable_weights)
-
-        super(TransitionModel, self).build(input_shape)
+#     def build(self, input_shape):
+#         # Since ConvTransitionModel is the only trainable parameter,
+#         # we treat it as a single weight and add it to the layer's weights
+#         self.ConvTMCell.build(input_shape)
+#         self.ConvTMCell.trainable = True
+        # self._trainable_weights.extend(self.ConvTMCell.trainable_weights)
+        # self._non_trainable_weights.extend(self.ConvTMCell.non_trainable_weights)
+#         super(TransitionModel, self).build(input_shape)
 
 def DQN_CNN(input_shape, padding='VALID', dims=(32, 64, 64), width_scale=1, dropout=0.0, initializer=tf.initializers.GlorotUniform()):
     inputs = Input(shape=input_shape)
@@ -180,7 +175,8 @@ class BBFModel(tf.keras.Model):
         self.head = Dense(units = num_actions * num_atoms, name="head")
         
         # transition model
-        self.transition_model = TransitionModel(num_actions=num_actions, latent_dim=latent_dim, renormalize=renormalize, initializer=initializer)
+        self.ConvTMCell = ConvTransitionModel("transition_model", num_actions, latent_dim, renormalize, initializer, dtype=dtype)
+        # self.transition_model = TransitionModel(num_actions=num_actions, latent_dim=latent_dim, renormalize=renormalize, initializer=initializer)
         
         # projection layer (SPR uses the first layer of the Q_head for this)
         self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, dtype=dtype, name="projection")
@@ -204,13 +200,21 @@ class BBFModel(tf.keras.Model):
         projected = self.projection(x)
         return projected
     
+    def predict_transitions(self, x, actions):
+        """Predict k future states given initial state and k actions"""
+        states = []
+        for i in range(actions.shape[1]):
+            x, pred_state = self.ConvTMCell(x, actions[:,i])
+            states.append(pred_state)
+        return x, tf.stack(states)
+    
     # @functools.partial(jax.vmap, in_axes=(None, 0))
     def spr_predict(self, x):
         projected = self.project(x)
         return self.predictor(projected)
     
     def spr_rollout(self, latent, actions):
-        _, pred_latents = self.transition_model(latent, actions)
+        _, pred_latents = self.predict_transitions(latent, actions)
 
         representations = self.flatten_spatial_latent(pred_latents, True, True)
                 
@@ -219,25 +223,14 @@ class BBFModel(tf.keras.Model):
         return predictions
     
     def flatten_spatial_latent(self, spatial_latent, has_batch=False, is_rollout=False):
-        # logging.info('Spatial latent shape: %s', str(spatial_latent.shape))
-        # if self.use_spatial_learned_embeddings:
-        #     representation = self.embedder(spatial_latent)
         if has_batch:
             if is_rollout:
-                # representation = Lambda(lambda x, y: tf.reshape(x, y))(spatial_latent, [spatial_latent.shape[0], spatial_latent.shape[1], -1])
                 representation = tf.reshape(spatial_latent, [spatial_latent.shape[0], spatial_latent.shape[1], -1])
             else:
-                # representation = Lambda(lambda x, y: tf.reshape(x, y))(spatial_latent, [spatial_latent.shape[0], -1])
                 representation = tf.reshape(spatial_latent, [spatial_latent.shape[0], -1])
-            # representation = spatial_latent.reshape(spatial_latent.shape[0], -1)
         else:
-            # representation = spatial_latent.reshape(-1)
             representation = tf.reshape(spatial_latent, [-1])
-            # representation = Lambda(lambda x, y: tf.reshape(x, y))(spatial_latent, [-1])
-            
-        # logging.info(
-        #     'Flattened representation shape: %s', str(representation.shape)
-        # )
+
         return representation
     
     def __call__(self, x, do_rollout=False, actions=None):
@@ -258,22 +251,4 @@ class BBFModel(tf.keras.Model):
         
         return q_values, spatial_latent, representation
 
-# TODO - don't know if this is all vectorized correctly (do they do this for each action or check that all the q-values are correct?)
-def Q_learning_loss(q_pred, target_q_network, states, actions, discount_factor, observed_rewards, update_horizon=1):
-    assert len(actions) == update_horizon == len(states) == len(observed_rewards)
-    
-    # q_pred = q_network(states[0], actions[0])
-    
-    cum_loss = 0
-    cum_obs_rewards = observed_rewards[0]
-    for k in range(1, update_horizon+1):
-        target_q = cum_obs_rewards + tf.math.pow(discount_factor, k) * target_q_network(states[k], actions[k])
-        cum_loss += tf.square(q_pred - target_q) # ! add a sum here probably
-        cum_obs_rewards += tf.math.pow(discount_factor, k) * observed_rewards[k]
-        
-    return cum_loss
-
-def self_predictive_representations_loss(max_depth=5):
-    # TODO
-    pass
     
