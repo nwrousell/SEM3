@@ -4,7 +4,9 @@ game: 'Assault-v4' # 'Amidar-v4' | 'Assault-v4'
 batch_size: 32
 subseq_len: 10
 target_ema_tau: 0.995 # how much to interpolate weights for the EMA of the target network
-eps_greedy: 0.05 # what percent of the time to choose a random action during data collection
+epsilon: 0.05 
+epsilon_decay_period: 2001
+epsilon_train: 0.00
 initial_collect_steps: 2000
 learning_rate: 0.0001
 weight_decay: 0.1
@@ -32,7 +34,7 @@ clip_reward: True
 process_inputs: True
 shrink_factor: 0.5
 
-evaluation_epsilon: 0
+evaluation_epsilon: 0.001
 
 replay_capacity: 200000
 reset_every: 40_000

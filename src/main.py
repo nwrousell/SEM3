@@ -1,7 +1,4 @@
 import gymnasium as gym
-# from tf_agents.trajectories import trajectory
-# import tensorflow as tf
-# from tf_agents.replay_buffers import tf_uniform_replay_buffer
 from replay_buffer import ReplayBuffer
 import tensorflow as tf
 from image_pre import process_inputs
@@ -17,6 +14,31 @@ data_spec = [
     tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
 ]
 
+# stolen from Dopamine: https://github.com/google/dopamine/blob/master/dopamine/agents/dqn/dqn_agent.py#L41C1-L62C25
+def linearly_decaying_epsilon(decay_period, step, warmup_steps, epsilon):
+    """Returns the current epsilon for the agent's epsilon-greedy policy.
+
+    This follows the Nature DQN schedule of a linearly decaying epsilon (Mnih et
+    al., 2015). The schedule is as follows:
+        Begin at 1. until warmup_steps steps have been taken; then
+        Linearly decay epsilon from 1. to epsilon in decay_period steps; and then
+        Use epsilon from there on.
+
+    Args:
+        decay_period: float, the period over which epsilon is decayed.
+        step: int, the number of training steps completed so far.
+        warmup_steps: int, the number of steps taken before epsilon is decayed.
+        epsilon: float, the final value to which to decay the epsilon parameter.
+
+    Returns:
+        A float, the current epsilon value computed according to the schedule.
+    """
+    steps_left = decay_period + warmup_steps - step
+    bonus = (1.0 - epsilon) * steps_left / decay_period
+    bonus = np.clip(bonus, 0.0, 1.0 - epsilon)
+    return epsilon + bonus
+    
+    
 def train(agent: Agent, env, args):
     train_writer = tf.summary.create_file_writer(args['summaries_dir']+'train')
     test_writer = tf.summary.create_file_writer(args['summaries_dir']+'test')
@@ -45,9 +67,11 @@ def train(agent: Agent, env, args):
         observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
 
     current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
-    epsilon = args['eps_greedy']
+    # epsilon = args['eps_greedy']
     
     for t in range(args['num_env_steps']):
+        epsilon = linearly_decaying_epsilon(args['epsilon_decay_period'], t, args['initial_collect_steps'], args['epsilon_train'])
+        
         action = agent.choose_action(current_state, epsilon)
         observation, reward, terminated, truncated, info = env.step(action)
         terminated = np.array([terminated])
@@ -163,7 +187,6 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     
     return round(eval_mean_reward, 2)
         
-
 def main():
     config_fname = "config.yaml"
     with open(config_fname, 'r') as file:
@@ -226,3 +249,7 @@ if __name__ == "__main__":
 
         
     
+# set up epsilon scheduler
+# stress test locally
+# set up tf on oscar
+# run
