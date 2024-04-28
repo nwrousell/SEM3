@@ -79,7 +79,7 @@ class Agent:
             else:
                 q_values, _, _ = self.online_model(observation)
             action = tf.argmax(q_values, axis=-1)
-            
+        
         return action
     
     def compute_td_error(self, q_values, actions, target_q_values):
@@ -97,7 +97,7 @@ class Agent:
         
         return spr_loss
 
-    def get_target_q_values(rewards, terminals, cumulative_gamma, target_network, next_states, update_horizon):
+    def get_target_q_values(self, rewards, terminals, cumulative_gamma, target_network, next_states, update_horizon):
         is_terminal_multiplier = 1.0 - terminals.astype(np.float32)
     
         # Incorporate terminal state to discount factor.
@@ -130,25 +130,22 @@ class Agent:
                    terminals, # (batch_size, subseq_len)
                    same_trajectory, # (batch_size, subseq_len)
                    indices):
+        
         # swap batch and time dimensions
         next_states = tf.transpose(next_states, perm=[1,0,2,3,4])
                     
         first_state = observations[:,0,:,:,:] # (84, 84, 4)
-        
-        # update_horizon = self.update_horizon_scheduler(step)
-        # gamma = self.gamma_scheduler(step)
         
         with tf.GradientTape() as tape:
             q_values, spr_predictions, _ = self.online_model(first_state, do_rollout=True, actions=next_actions[:,:self.spr_prediction_depth])
             
             # compute targets
             spr_targets = tf.vectorized_map(lambda x: self.target_model.encode_project(x, True, False), next_states[:self.spr_prediction_depth])
-            # ! should we be passing in next_rewards instead of rewards
-            q_targets = self.get_target_q_values(rewards, terminals, discounts, self.target_model, next_states, update_horizon)
+            q_targets = self.get_target_q_values(next_rewards, terminals, discounts, self.target_model, next_states, update_horizon)
             
             # compute TD error and SPR loss
-            td_error = self.compute_td_error(q_targets, q_values, actions)
-            spr_loss = self.compute_spr_loss(spr_targets, spr_predictions, same_trajectory[:, :self.spr_prediction_depth])
+            td_error = self.compute_td_error(q_values, actions, q_targets)
+            spr_loss = self.compute_spr_error(spr_targets, spr_predictions, same_trajectory[:, :self.spr_prediction_depth])
             
             td_error = tf.reduce_mean(td_error)
             spr_loss = tf.reduce_mean(spr_loss)
@@ -158,13 +155,13 @@ class Agent:
         gradients = tape.gradient(loss, self.online_model.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.online_model.trainable_variables))
         
-        all_losses = {
-            "Total Loss": loss.numpy(),
-            "TD Error": td_error.numpy(),
-            "SPR Loss": spr_loss.numpy()
-        }
+        # all_losses = {
+        #     "Total Loss": loss.numpy(),
+        #     "TD Error": td_error.numpy(),
+        #     "SPR Loss": spr_loss.numpy()
+        # }
         
-        print(all_losses)
+        return loss.numpy(), td_error.numpy(), spr_loss.numpy()
     
     def update_target(self):
         target_weights = get_weight_dict(self.target_model)
@@ -209,7 +206,7 @@ def interpolate_weights(weights_a, weights_b, tau, layers=None):
                 w.append((1-tau) * w_a + tau * w_b)
             new_weights[layer_name] = w
         else:
-            new_weights[layer_name] = weights_a
+            new_weights[layer_name] = weights_a[layer_name]
             
     return new_weights
 

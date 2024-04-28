@@ -7,7 +7,7 @@ target_ema_tau: 0.995 # how much to interpolate weights for the EMA of the targe
 epsilon: 0.05 
 epsilon_decay_period: 2001
 epsilon_train: 0.00
-initial_collect_steps: 2000
+initial_collect_steps: 500
 learning_rate: 0.0001
 weight_decay: 0.1
 frameskip: 4
@@ -49,3 +49,4 @@ model_dir: '../runs/models/'
 video_dir: '../videos/'
 eval_frequency: 10000 # eval every 10k frames
 train_log_frequency: 4
+print_frequency: 100

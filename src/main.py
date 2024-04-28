@@ -5,6 +5,7 @@ from image_pre import process_inputs
 import numpy as np
 import yaml
 from agent import Agent
+from time import time
 import argparse
 
 data_spec = [
@@ -63,11 +64,12 @@ def train(agent: Agent, env, args):
     max_mean_reward = None
     num_grad_steps = 0
     
+    start_time = time()
+    
     if args['process_inputs']:
         observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
 
     current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
-    # epsilon = args['eps_greedy']
     
     for t in range(args['num_env_steps']):
         epsilon = linearly_decaying_epsilon(args['epsilon_decay_period'], t, args['initial_collect_steps'], args['epsilon_train'])
@@ -89,14 +91,14 @@ def train(agent: Agent, env, args):
         replay_buffer.add(observation, action, reward, terminated)
         
         if terminated:
-            obs = env.reset()
+            observation, _ = env.reset()
             if args['process_inputs']:
-                obs = process_inputs(obs, linear_scale=args['linear_scale'], augmentation=False)
+                observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
             current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
             episode_rewards.append(0.0)
         
         if t > args['initial_collect_steps']:
-            update_horizon = agent.update_horizon_scheduler(num_grad_steps)
+            update_horizon = round(agent.update_horizon_scheduler(num_grad_steps))
             gamma = agent.gamma_scheduler(num_grad_steps)
             
             for s in range(args['replay_ratio']):
@@ -104,8 +106,8 @@ def train(agent: Agent, env, args):
                 batch = replay_buffer.sample_transition_batch(update_horizon=update_horizon,
                                                       gamma=gamma, 
                                                       subseq_len=update_horizon)
-                
-                agent.train_step(update_horizon, *batch)
+                    
+                loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
                 
                 if s % args['target_update_frequency'] == 0:
                     agent.update_target()
@@ -117,14 +119,16 @@ def train(agent: Agent, env, args):
         if num_episodes > 100:
             mean_reward = np.mean(episode_rewards[-101:-1])
         
-        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['eval_frequency']:
+        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
             if max_mean_reward is None or mean_reward > max_mean_reward:
                 max_mean_reward = mean_reward
                 print(f"improvement in mean_100ep_reward: {max_mean_reward}")
             else:
                 print(f"No improvement in max mean_100ep_reward. Achieved: {mean_reward}, max: {max_mean_reward}")
+            elapsed = time() - start_time
+            print(f"Environment steps: {t}. Gradient updates: {num_grad_steps}. TD error: {td_error}. SPR error: {spr_error}. Time elapsed: {elapsed}s")
         
-        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['eval_frequency']:
+        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['eval_frequency'] == 0:
             eval_mean_reward = evaluate(agent, env)
             checkpoint.step.assign_add(1)
             save_path = manager.save()
@@ -132,7 +136,7 @@ def train(agent: Agent, env, args):
             with test_writer.as_default():
                 tf.summary.scalar('eval_reward', eval_mean_reward, step=t)
         
-        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['train_log_frequency']:
+        if num_episodes > 100 and t > args['initial_collect_steps'] and t % (args['train_log_frequency']*100) == 0:
             with train_writer.as_default():
                 tf.summary.scalar("mean_100ep_reward", mean_reward, step=t)
             
@@ -192,11 +196,14 @@ def main():
     with open(config_fname, 'r') as file:
         config_args = yaml.safe_load(file)
         
+    for k, v in config_args.items():
+        print(f"{k}: {v}")   
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', help='train an agent to find optimal policy', action='store_true')
     parser.add_argument('--evaluate', help='evaluate trained policy of an agent', action='store_true')
     parser.add_argument('--play', help='let trained agent play', action='store_true')
-    # parser.add_argument('--env', nargs=1, help='env used for DQN', type=str)
+    # parser.add_argument('--env', nargs=1, help='Atari 2600 game used as environment', type=str)
     
     terminal_args = parser.parse_args()
     
@@ -244,12 +251,20 @@ def main():
     env.close()
     
 if __name__ == "__main__":
-    print("GPU Available: ", tf.test.is_gpu_available())
+    print("Devices available: ", tf.config.list_physical_devices('GPU'))
     main()
 
-        
-    
-# set up epsilon scheduler
-# stress test locally
-# set up tf on oscar
-# run
+
+# get running on Oscar
+
+# data augmentation
+# what to do to target network during reset?
+# renormalization
+
+# audio support for ALE
+# different architectures with audio + run experiments
+
+# add distributional DQN
+# add dueling DQN
+# add double DQN
+# maybe add prioritized replay buffer? (can probably mostly copy from BBF)
