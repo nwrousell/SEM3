@@ -14,7 +14,7 @@
 ## Environment setup
 - `python -m venv env`
 - `source env/bin/activate`
-- `pip install tensorflow gymnasium gymnasium[atari] gymnasium[accept-rom-license]`
+- `pip install tensorflow gymnasium gymnasium[atari] gymnasium[accept-rom-license] pyyaml opencv-python`
 
 
 - AutoROM to download ROMs manually (if using ALE instead): [docs](https://pypi.org/project/AutoROM/)

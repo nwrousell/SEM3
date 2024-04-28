@@ -412,7 +412,7 @@ class ReplayBuffer:
             cumulative_discount_vector = self._cumulative_discount_vector
         else:
             cumulative_discount_vector = np.array(
-                [math.pow(gamma, n) for n in range(update_horizon + 1)],
+                [math.pow(gamma, n) for n in range(update_horizon)],
                 dtype=np.float32,
             )
         assert len(t_indices) == batch_size
@@ -468,8 +468,9 @@ class ReplayBuffer:
                 output = self.restore_leading_dims(batch_size, subseq_len, output)
             elif name == 'discount':
                 # compute the discounted sum of rewards in the trajectory.
-                output = cumulative_discount_vector[update_horizons + 1]
-                output = self.restore_leading_dims(batch_size, subseq_len, output)
+                # output = cumulative_discount_vector[update_horizons + 1]
+                # output = self.restore_leading_dims(batch_size, subseq_len, output)
+                output = cumulative_discount_vector
             elif name == 'next_state':
                 output = self.parallel_get_stack(
                     'observation',

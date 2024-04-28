@@ -1,19 +1,38 @@
-game: 'Assault-v4' # 'Amidar-v4' | 'Assault-v4'
-batch_size: 64
-stack_size: 1
-subseq_len: 10
-tau: 0.99 # how much to interpolate weights for the EMA of the target network
-eps_greedy: 0.05 # what percent of the time to choose a random action during data collection
-initial_collect_steps: 200
+# BBF config: https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/configs/BBF.gin
 
-hidden_dim: 2048
-num_atoms: 1 # for distributional, ignore for now
+game: 'Assault-v4' # 'Amidar-v4' | 'Assault-v4'
+batch_size: 32
+subseq_len: 3
+tau: 0.995 # how much to interpolate weights for the EMA of the target network
+eps_greedy: 0.05 # what percent of the time to choose a random action during data collection
+initial_collect_steps: 100
+learning_rate: 0.0001
+weight_decay: 0.1
+frameskip: 4
+stack_frames: 4
+renormalize: True
+target_update_period: 1
+target_action_selection: True # whether to use the target network for action selection during data collection
+
+hidden_dim: 2048 # size of the projection / prediction layers
+num_atoms: 1 # for distributional Q-networks, ignore for now
 spr_loss_weight: 2 # relative to RL loss
 
-encoder_network: "DQN" # 'DQN' (3-layer CNN) or 'ImpalaWide' (15-layer ResNet)
+encoder_network: "ImpalaWide" # 'DQN' (3-layer CNN) or 'ImpalaWide' (15-layer ResNet)
 
+spr_prediction_depth: 5
 start_gamma: 0.97
 end_gamma: 0.997
 start_update_horizon: 10
 end_update_horizon: 3
 replay_ratio: 2
+periodic_logging: 500 # log loss every X environment steps
+perturb_factor: 0.5
+shrink_factor: 0.5
+
+replay_capacity: 200000
+num_env_steps: 100_000 # Atari 100k
+
+## Pre-processing
+data_augmentation: False
+linear_scale: True

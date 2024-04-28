@@ -14,7 +14,7 @@ def renormalize(tensor, has_batch=False):
 
 def residual_stage(x, dim, width_scale, num_blocks, initializer, norm_type, dropout):
     """Residual block with two convolutional layers."""
-    conv_out = Conv2D(filters=dim*width_scale,kernel_size=3,strides=1, padding='SAME', kernel_initializer=initializer)(x) # ! here: 
+    conv_out = Conv2D(filters=dim*width_scale,kernel_size=3,strides=1, padding='SAME', kernel_initializer=initializer)(x)
     conv_out = MaxPool2D(pool_size=3, strides=2)(conv_out)
         
     for _ in range(num_blocks):
@@ -45,7 +45,6 @@ def residual_stage(x, dim, width_scale, num_blocks, initializer, norm_type, drop
         conv_out += block_input
     return conv_out
 
-
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L448
 def ScaledImpalaCNN(
     input_shape, 
@@ -64,39 +63,7 @@ def ScaledImpalaCNN(
         x = residual_stage(x, dim=d, width_scale=width_scale, num_blocks=2, initializer=initializer, norm_type=norm_type, dropout=dropout)
     
     x = ReLU()(x)
-    return tf.keras.Model(inputs=inputs, outputs=x, name="Impala CNN (encoder)")
-    
-# https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L325
-# class ConvTransitionModel(tf.keras.layers.Layer):
-#     def __init__(self, name, num_actions: int, latent_dim: int, renormalize: bool, initializer=tf.initializers.GlorotUniform(), dtype=np.float32):
-#         super(ConvTransitionModel, self).__init__(name=name)
-#         self.num_actions = num_actions
-#         self.latent_dim = latent_dim
-#         self.renormalize = renormalize
-#         self.initializer = initializer
-#         self.conv1 = Conv2D(filters=self.latent_dim, kernel_size=3, strides=1, kernel_initializer=self.initializer,padding="SAME", activation="relu")
-#         self.conv2 = Conv2D(filters=self.latent_dim, kernel_size=3, strides=1, kernel_initializer=self.initializer,padding="SAME", activation="relu")
-    
-#     def __call__(self, x, action):
-#         tf.print('\ncalling call method')
-#         tf.print(f'input shape : {x.shape}')
-#         action_onehot = tf.one_hot(action, self.num_actions)
-#         action_onehot = tf.reshape(action_onehot, [action_onehot.shape[0], 1, 1, action_onehot.shape[1]])
-#         action_onehot = tf.broadcast_to(action_onehot, [action_onehot.shape[0], x.shape[-3], x.shape[-2], action_onehot.shape[-1]])
-#         x = tf.concat([x, action_onehot], -1)
-        
-#         x = self.conv1(x)
-#         x = self.conv2(x)
-                            
-#         if self.renormalize:
-#             raise Exception("Renormalization has not been implemented yet")
-        
-#         tf.print(f'output shape : {x.shape}')
-        
-#         return x, x
-    
-#     def compute_output_shape(self, input_shape):
-#         return self.model.compute_output_shape(input_shape)
+    return tf.keras.Model(inputs=inputs, outputs=x, name="encoder")
 
 def DQN_CNN(input_shape, padding='VALID', dims=(32, 64, 64), width_scale=1, dropout=0.0, initializer=tf.initializers.GlorotUniform()):
     inputs = Input(shape=input_shape)
@@ -115,8 +82,7 @@ def DQN_CNN(input_shape, padding='VALID', dims=(32, 64, 64), width_scale=1, drop
         x = Dropout(dropout)(x)
         x = ReLU()(x)
     outputs = x
-    return tf.keras.Model(inputs=inputs, outputs=outputs, name="encoder_DQN")
-        
+    return tf.keras.Model(inputs=inputs, outputs=outputs, name="encoder")
 
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L242
 class LinearHead(tf.keras.Model):
@@ -161,7 +127,7 @@ class BBFModel(tf.keras.Model):
         self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, dtype=dtype, name="projection")
         
         # predictor
-        self.predictor = Dense(units = self.hidden_dim, kernel_initializer=initializer, name="predictor")
+        self.predictor = Dense(units=self.hidden_dim, kernel_initializer=initializer, name="predictor")
     
     def encode(self, x):
         latent = self.encoder(x)
@@ -206,6 +172,7 @@ class BBFModel(tf.keras.Model):
         projected = self.project(x)
         return self.predictor(projected)
     
+    @tf.function
     def spr_rollout(self, latent, actions):
         _, pred_latents = self.predict_transitions(latent, actions)
 
@@ -244,8 +211,93 @@ class BBFModel(tf.keras.Model):
                 
         return q_values, spatial_latent, representation
 
-def interpolate_weights(weights_a, weights_b, tau):
-    new_weights = []
-    for w_a, w_b in zip(weights_a, weights_b):
-        new_weights.append((1-tau) * w_a + tau * w_b)
+def get_weight_dict(model):
+    weight_dict = {}
+    for layer in model.layers:
+        weight_dict[layer.name] = layer.get_weights()
+    return weight_dict
+
+def set_weights(model, weight_dict):
+    for layer in model.layers:
+        layer.set_weights(weight_dict[layer.name])
+
+def interpolate_weights(weights_a, weights_b, tau, layers=None):
+    """
+    Interpolates weights_a to weights_b by amount tau. 
+    If layers isn't None, only weights in layers are interpolated
+    """
+    new_weights = {}
+    for layer_name in weights_a.keys():
+        if layers == None or layer_name in layers:
+            w = []
+            for w_a, w_b in zip(weights_a[layer_name], weights_b[layer_name]):
+                w.append((1-tau) * w_a + tau * w_b)
+            new_weights[layer_name] = w
+        else:
+            new_weights[layer_name] = weights_a
+            
+    return new_weights
+
+# https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L311
+def exponential_decay_scheduler(decay_period, warmup_steps, initial_value, final_value, reverse=False):
+    """Instantiate a logarithmic schedule for a parameter.
+
+    By default the extreme point to or from which values decay logarithmically
+    is 0, while changes near 1 are fast. In cases where this may not
+    be correct (e.g., lambda) pass reversed=True to get proper
+    exponential scaling.
+
+    Args:
+        decay_period: float, the period over which the value is decayed.
+        warmup_steps: int, the number of steps taken before decay starts.
+        initial_value: float, the starting value for the parameter.
+        final_value: float, the final value for the parameter.
+        reverse: bool, whether to treat 1 as the asmpytote instead of 0.
+
+    Returns:
+        A decay function mapping step to parameter value.
+    """
+    if reverse:
+        initial_value = 1 - initial_value
+        final_value = 1 - final_value
+
+    start = np.log(initial_value)
+    end = np.log(final_value)
+
+    if decay_period == 0:
+        return lambda x: initial_value if x < warmup_steps else final_value
+
+    def scheduler(step):
+        steps_left = max(decay_period + warmup_steps - step, 0)
+        bonus_frac = steps_left / decay_period
+        bonus = np.clip(bonus_frac, 0.0, 1.0)
+        new_value = bonus * (start - end) + end
+
+        new_value = np.exp(new_value)
+        if reverse:
+            new_value = 1 - new_value
+            
+        return new_value
+
+    return scheduler
+
+# https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L203
+def weights_reset(weights_dict, initializer=tf.initializers.GlorotUniform()):
+    """
+    reset weights of Q head; interpolate encoder and transition model weights 50% to random
+    """
+    # generate random weights
+    rand_weights = {}
+    for layer_name in weights_dict.keys():
+        weights = []
+        for w in weights_dict[layer_name]:
+            weights.append(initializer(shape=w.shape))
+        rand_weights[layer_name] = weights
+    
+    # reset weights of Q head fully
+    new_weights = interpolate_weights(weights_dict, rand_weights, 1, layers=["head"])
+    
+    # interpolate encoder/transition weights 50% (shrink-and-perturb)
+    new_weights = interpolate_weights(new_weights, rand_weights, 0.5, layers=["encoder", "transition"])
+    
     return new_weights

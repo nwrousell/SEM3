@@ -8,24 +8,24 @@ import tensorflow as tf
 # Github Paper: https://github.com/spragunr/deep_q_rl/tree/master
 
 # either linearly scales or center crops + the data + the augmentation
-# linear an int (0 or 1) -> if 0 center crop if 1 linear 
-tensor = np.zeros((210, 160))
-def resize_image(image,linear,augmentation):
+# linear: bool -> if False, center crop if True, linear scale
+
+def process_inputs(image, linear_scale: bool, augmentation: bool):
     crop_height, crop_width = 84, 84  # Desired crop size
     original_height, original_width = 210, 160  # Original image size
 
+    image = image.astype(np.float32) / 255.0
+
     central_fraction = min(crop_height/original_height, crop_width/original_width)
-    if linear == 1:
+    if linear_scale:
         # linearly scale it 
         return cv2.resize(image,
-                              (84, 84),
+                              (crop_height, crop_width),
                               interpolation=cv2.INTER_LINEAR)
     else:
         image = tf.expand_dims(image, axis=-1)
         return tf.image.central_crop(image, central_fraction) 
 
-print(resize_image(tensor,0,0).shape)
-# print(tensor.shape)    
 
         # linearly scale it down 
 # self.uses_augmentation = False
