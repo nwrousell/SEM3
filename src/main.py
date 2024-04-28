@@ -109,10 +109,10 @@ def train(agent: Agent, env, args):
                     
                 loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
                 
-                if s % args['target_update_frequency'] == 0:
+                if num_grad_steps % args['target_update_frequency'] == 0:
                     agent.update_target()
                 
-                if s % args['reset_every'] == 0:
+                if num_grad_steps % args['reset_every'] == 0:
                     agent.reset_weights()
         
         num_episodes = len(episode_rewards)
