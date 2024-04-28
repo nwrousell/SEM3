@@ -3,14 +3,17 @@ from tensorflow.keras.layers import Conv2D, MaxPool2D, BatchNormalization, ReLU,
 import numpy as np
 
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L315
-def renormalize(tensor, has_batch=False):
+def renormalize(tensor, has_batch=False, is_rollout=False):
     shape = tensor.shape
     if not has_batch:
-        tensor = np.expand_dims(tensor, 0)
-    tensor = tensor.reshape(tensor.shape[0], -1)
-    max_value = np.max(tensor, axis=-1, keepdims=True)
-    min_value = np.min(tensor, axis=-1, keepdims=True)
-    return ((tensor - min_value) / (max_value - min_value + 1e-5)).reshape(*shape)
+        tensor = tf.expand_dims(tensor, 0)
+    if not is_rollout:
+        tensor = tf.reshape(tensor, [tensor.shape[0], -1])
+    else:
+        tensor = tf.reshape(tensor, [tensor.shape[0], tensor.shape[1], -1])
+    max_value = tf.reduce_max(tensor, axis=-1, keepdims=True)
+    min_value = tf.reduce_max(tensor, axis=-1, keepdims=True)
+    return tf.reshape(((tensor - min_value) / (max_value - min_value + 1e-5)), shape)
 
 def residual_stage(x, dim, width_scale, num_blocks, initializer, norm_type, dropout):
     """Residual block with two convolutional layers."""
@@ -116,28 +119,23 @@ class BBFModel(tf.keras.Model):
         self.head = Dense(units = num_actions * num_atoms, name="head")
         
         # transition model
-        # self.ConvTMCell = ConvTransitionModel("transition_model", num_actions, latent_dim, renormalize, initializer, dtype=dtype)
-        # self.transition_model = TransitionModel(num_actions=num_actions, latent_dim=latent_dim, renormalize=renormalize, initializer=initializer)
         self.TransitionCell = tf.keras.Sequential([
             Conv2D(filters=latent_dim, kernel_size=3, strides=1, kernel_initializer=initializer, padding="SAME", activation="relu"),
             Conv2D(filters=latent_dim, kernel_size=3, strides=1, kernel_initializer=initializer, padding="SAME", activation="relu")
         ], name="transition")
         
-        # projection layer (SPR uses the first layer of the Q_head for this)
         self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, dtype=dtype, name="projection")
         
-        # predictor
         self.predictor = Dense(units=self.hidden_dim, kernel_initializer=initializer, name="predictor")
     
-    def encode(self, x):
+    def encode(self, x, has_batch=False, is_rollout=False):
         latent = self.encoder(x)
         if self.renormalize:
-            raise NotImplementedError("renormalization is not implemented!")
-            latent = renormalize(latent)
+            latent = renormalize(latent, has_batch, is_rollout)
         return latent
 
     def encode_project(self, x, has_batch=False, is_rollout=False):
-        latent = self.encode(x)
+        latent = self.encode(x, has_batch, is_rollout)
         representation = self.flatten_spatial_latent(latent, has_batch, is_rollout)
         return self.project(representation)
 
@@ -154,7 +152,7 @@ class BBFModel(tf.keras.Model):
         x = self.TransitionCell(x)
                             
         if self.renormalize:
-            raise Exception("Renormalization has not been implemented yet")
+            x = renormalize(x, True)
                 
         return x, x
     
@@ -210,94 +208,3 @@ class BBFModel(tf.keras.Model):
         q_values = tf.squeeze(logits)
                 
         return q_values, spatial_latent, representation
-
-def get_weight_dict(model):
-    weight_dict = {}
-    for layer in model.layers:
-        weight_dict[layer.name] = layer.get_weights()
-    return weight_dict
-
-def set_weights(model, weight_dict):
-    for layer in model.layers:
-        layer.set_weights(weight_dict[layer.name])
-
-def interpolate_weights(weights_a, weights_b, tau, layers=None):
-    """
-    Interpolates weights_a to weights_b by amount tau. 
-    If layers isn't None, only weights in layers are interpolated
-    """
-    new_weights = {}
-    for layer_name in weights_a.keys():
-        if layers == None or layer_name in layers:
-            w = []
-            for w_a, w_b in zip(weights_a[layer_name], weights_b[layer_name]):
-                w.append((1-tau) * w_a + tau * w_b)
-            new_weights[layer_name] = w
-        else:
-            new_weights[layer_name] = weights_a
-            
-    return new_weights
-
-# https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L311
-def exponential_decay_scheduler(decay_period, warmup_steps, initial_value, final_value, reverse=False):
-    """Instantiate a logarithmic schedule for a parameter.
-
-    By default the extreme point to or from which values decay logarithmically
-    is 0, while changes near 1 are fast. In cases where this may not
-    be correct (e.g., lambda) pass reversed=True to get proper
-    exponential scaling.
-
-    Args:
-        decay_period: float, the period over which the value is decayed.
-        warmup_steps: int, the number of steps taken before decay starts.
-        initial_value: float, the starting value for the parameter.
-        final_value: float, the final value for the parameter.
-        reverse: bool, whether to treat 1 as the asmpytote instead of 0.
-
-    Returns:
-        A decay function mapping step to parameter value.
-    """
-    if reverse:
-        initial_value = 1 - initial_value
-        final_value = 1 - final_value
-
-    start = np.log(initial_value)
-    end = np.log(final_value)
-
-    if decay_period == 0:
-        return lambda x: initial_value if x < warmup_steps else final_value
-
-    def scheduler(step):
-        steps_left = max(decay_period + warmup_steps - step, 0)
-        bonus_frac = steps_left / decay_period
-        bonus = np.clip(bonus_frac, 0.0, 1.0)
-        new_value = bonus * (start - end) + end
-
-        new_value = np.exp(new_value)
-        if reverse:
-            new_value = 1 - new_value
-            
-        return new_value
-
-    return scheduler
-
-# https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L203
-def weights_reset(weights_dict, initializer=tf.initializers.GlorotUniform()):
-    """
-    reset weights of Q head; interpolate encoder and transition model weights 50% to random
-    """
-    # generate random weights
-    rand_weights = {}
-    for layer_name in weights_dict.keys():
-        weights = []
-        for w in weights_dict[layer_name]:
-            weights.append(initializer(shape=w.shape))
-        rand_weights[layer_name] = weights
-    
-    # reset weights of Q head fully
-    new_weights = interpolate_weights(weights_dict, rand_weights, 1, layers=["head"])
-    
-    # interpolate encoder/transition weights 50% (shrink-and-perturb)
-    new_weights = interpolate_weights(new_weights, rand_weights, 0.5, layers=["encoder", "transition"])
-    
-    return new_weights

@@ -2,16 +2,16 @@
 
 game: 'Assault-v4' # 'Amidar-v4' | 'Assault-v4'
 batch_size: 32
-subseq_len: 3
-tau: 0.995 # how much to interpolate weights for the EMA of the target network
+subseq_len: 10
+target_ema_tau: 0.995 # how much to interpolate weights for the EMA of the target network
 eps_greedy: 0.05 # what percent of the time to choose a random action during data collection
-initial_collect_steps: 100
+initial_collect_steps: 2000
 learning_rate: 0.0001
 weight_decay: 0.1
 frameskip: 4
 stack_frames: 4
-renormalize: True
-target_update_period: 1
+renormalize: False
+target_update_frequency: 10
 target_action_selection: True # whether to use the target network for action selection during data collection
 
 hidden_dim: 2048 # size of the projection / prediction layers
@@ -26,13 +26,24 @@ end_gamma: 0.997
 start_update_horizon: 10
 end_update_horizon: 3
 replay_ratio: 2
-periodic_logging: 500 # log loss every X environment steps
+log_every: 100 
 perturb_factor: 0.5
+clip_reward: True
+process_inputs: True
 shrink_factor: 0.5
 
+evaluation_epsilon: 0
+
 replay_capacity: 200000
+reset_every: 40_000
 num_env_steps: 100_000 # Atari 100k
 
 ## Pre-processing
 data_augmentation: False
 linear_scale: True
+
+summaries_dir: '../runs/summaries/'
+model_dir: '../runs/models/'
+video_dir: '../videos/'
+eval_frequency: 10000 # eval every 10k frames
+train_log_frequency: 4

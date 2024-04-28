@@ -2,275 +2,227 @@ import gymnasium as gym
 # from tf_agents.trajectories import trajectory
 # import tensorflow as tf
 # from tf_agents.replay_buffers import tf_uniform_replay_buffer
-from networks import BBFModel, interpolate_weights, exponential_decay_scheduler, get_weight_dict, set_weights, weights_reset
 from replay_buffer import ReplayBuffer
 import tensorflow as tf
 from image_pre import process_inputs
 import numpy as np
-import math
 import yaml
+from agent import Agent
+import argparse
 
-# https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L856
-def get_target_q_values(rewards, terminals, cumulative_gamma, target_network, next_states, update_horizon):
-    """Builds the DQN target Q-values."""
-    is_terminal_multiplier = 1.0 - terminals.astype(np.float32)
-    
-    # Incorporate terminal state to discount factor.
-    gamma_with_terminal = cumulative_gamma * is_terminal_multiplier # (update_horizon, )
+data_spec = [
+    tf.TensorSpec(shape=(84,84), name="observation", dtype=np.float32),
+    tf.TensorSpec(shape=(), name="action", dtype=np.int32),
+    tf.TensorSpec(shape=(), name="reward", dtype=np.float32),
+    tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
+]
 
-    q_values = tf.vectorized_map(lambda s: target_network(s)[0], next_states) # (update_horizon, batch_size, num_actions)
-
-    replay_q_values = tf.reduce_max(q_values, axis=2) # (update_horizon, batch_size)
-    replay_q_values = tf.transpose(replay_q_values) # (batch_size, update_horizon)
-        
-    # TODO - rewrite with vectorized operations to replace for loop
-    target = np.zeros((next_states.shape[1], update_horizon))
-    for k in range(1, update_horizon+1):
-        prefix = tf.reduce_sum(rewards[:, :k] * gamma_with_terminal[:, :k], axis=1) # multiply discounts over rewards up to k and sum along time dimension
-        target_pred = replay_q_values[:, k-1]
-        target[:, k-1] = prefix + target_pred
-
-    return tf.stop_gradient(target) # (batch_size, update_horizon)
-
-huber_loss = tf.keras.losses.Huber()
-
-# loss function: https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/agents/spr_agent.py#L674
-def compute_spr_loss(spr_targets, spr_predictions, same_trajectory):
-    spr_predictions = spr_predictions / tf.norm(spr_predictions, axis=-1, keepdims=True)
-    spr_targets = spr_targets / tf.norm(spr_targets, axis=-1, keepdims=True)
-    spr_loss = tf.reduce_sum(tf.pow(spr_predictions - spr_targets, 2), axis=-1)
-    spr_loss = tf.reduce_sum(spr_loss * tf.cast(tf.transpose(same_trajectory, [1,0]), dtype=np.float32), axis=-1)
-    
-    return spr_loss
-
-def compute_RL_loss(target_q_values, q_values, actions):
-    first_actions = actions[:, 0]
-    chosen_q = tf.gather(q_values, indices=first_actions, axis=1, batch_dims=1)
-    td_error = tf.vectorized_map(lambda _target: huber_loss(_target, chosen_q), tf.transpose(target_q_values))
-    
-    return td_error
-
-def train_model(args):
-    game = args['game']
-    replay_ratio = args['replay_ratio']
-    batch_size = args['batch_size']
-    subseq_len = args['subseq_len']
-    tau = args['tau']
-    eps_greedy = args['eps_greedy']
-    initial_collect_steps = args['initial_collect_steps']
-    start_gamma = args['start_gamma']
-    end_gamma = args['end_gamma']
-    start_update_horizon = args['start_update_horizon']
-    end_update_horizon = args['end_update_horizon']
-    hidden_dim = args['hidden_dim']
-    num_atoms = args['num_atoms']
-    spr_loss_weight = args['spr_loss_weight']
-    encoder_network = args['encoder_network']
-    weight_decay = args['weight_decay']
-    learning_rate = args['learning_rate']
-    frameskip = args['frameskip']
-    target_update_period = args['target_update_period']
-    target_action_selection = args['target_action_selection']
-    renormalize = args['renormalize']
-    shrink_factor = args['shrink_factor']
-    perturb_factor = args['perturb_factor']
-    replay_capacity = args['replay_capacity']
-    spr_prediction_depth = args['spr_prediction_depth']
-    linear_scale = args['linear_scale']
-    data_augmentation = args['data_augmentation']
-    stack_frames = args['stack_frames']
-    num_env_steps = args['num_env_steps']
-    
-    print("training model with args:", args)
-    
-    env = gym.make(game, render_mode="human", obs_type='grayscale', frameskip=frameskip)
-    
-    gamma_scheduler = exponential_decay_scheduler(10000, 0, start_gamma, end_gamma)
-    update_horizon_scheduler = exponential_decay_scheduler(10000, 0, start_update_horizon, end_update_horizon)
-
-    obs_shape = env.observation_space.shape
-    print("observation shape: ", obs_shape)
-    n_valid_actions = env.action_space.n
-    print("# valid actions:", n_valid_actions)
-    
-    # obs_shape = (*obs_shape, 1)
-    processed_obs_shape = (84, 84)
-    
-    data_spec = [
-        tf.TensorSpec(shape=processed_obs_shape, name="observation", dtype=np.float32),
-        tf.TensorSpec(shape=(), name="action", dtype=np.int32),
-        tf.TensorSpec(shape=(), name="reward", dtype=np.float32),
-        tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
-    ]
-    
-    bbf_online = BBFModel(input_shape=(*processed_obs_shape, stack_frames), 
-                          encoder_network=encoder_network,
-                          num_actions=n_valid_actions, 
-                          hidden_dim=hidden_dim, 
-                          num_atoms=num_atoms
-                        )
-    
-    bbf_target = BBFModel(input_shape=(*processed_obs_shape, stack_frames), 
-                          encoder_network=encoder_network,
-                          num_actions=n_valid_actions, 
-                          hidden_dim=hidden_dim, 
-                          num_atoms=num_atoms
-                        )
-    bbf_target.trainable = False
+def train(agent: Agent, env, args):
+    train_writer = tf.summary.create_file_writer(args['summaries_dir']+'train')
+    test_writer = tf.summary.create_file_writer(args['summaries_dir']+'test')
+    checkpoint = tf.train.Checkpoint(step=tf.Variable(0), optimizer=agent.optimizer, model=agent.online_model)
+    manager = tf.train.CheckpointManager(checkpoint, args['model_dir'], max_to_keep=3)
     
     replay_buffer = ReplayBuffer(data_spec, 
-                                 replay_capacity=replay_capacity, 
-                                 batch_size=batch_size, 
-                                 update_horizon=start_update_horizon, 
-                                 gamma=start_gamma, 
+                                 replay_capacity=args['replay_capacity'], 
+                                 batch_size=args['batch_size'], 
+                                 update_horizon=args['start_update_horizon'], 
+                                 gamma=args['start_gamma'], 
                                  n_envs=1, 
-                                 stack_size=stack_frames, # ? no idea what this is
-                                 subseq_len=subseq_len,
-                                 observation_shape=obs_shape,
+                                 stack_size=args['stack_frames'],
+                                 subseq_len=args['subseq_len'],
+                                 observation_shape=(84,84),
                                  rng=np.random.default_rng(seed=17)
                                 )
-    
-    # observation = process_inputs(observation, linear_scale=linear_scale, augmentation=False)
-    fake_state = np.zeros((1, *processed_obs_shape, stack_frames))
-    _ = bbf_online(fake_state, do_rollout=True, actions=np.random.randint(0, n_valid_actions, (1, spr_prediction_depth)))
-    _ = bbf_target(fake_state, do_rollout=True, actions=np.random.randint(0, n_valid_actions, (1, spr_prediction_depth)))
-    
-    print(bbf_online.summary())
-    # print(bbf_online.encoder.summary())
-    
-    # initially, set target network to clone of online network
-    online_weights = bbf_online.get_weights()
-    bbf_target.set_weights(online_weights)
 
     observation, _ = env.reset()
+    
+    episode_rewards = [0.0]
+    max_mean_reward = None
+    num_grad_steps = 0
+    
+    if args['process_inputs']:
+        observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
 
-    optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay)
-        
-    num_gradient_updates = 0
-    current_state = np.zeros((*processed_obs_shape, stack_frames))
-    for num_steps in range(num_env_steps):
-        
-        # select action based on policy
-        if replay_buffer.num_elements() < initial_collect_steps:
-            action = np.random.randint(0, n_valid_actions)
-        else:
-            prob = np.random.random()
-            if prob < eps_greedy:
-                action = np.random.randint(0, n_valid_actions)
-            else:
-                if target_action_selection:
-                    q_values, _, _ = bbf_target(current_state[np.newaxis,:,:,:])
-                else:
-                    q_values, _, _ = bbf_online(current_state[np.newaxis,:,:,:])
-                action = tf.argmax(q_values, axis=-1)
-        
-        # step environment, deposit experience in replay buffer
+    current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+    epsilon = args['eps_greedy']
+    
+    for t in range(args['num_env_steps']):
+        action = agent.choose_action(current_state, epsilon)
         observation, reward, terminated, truncated, info = env.step(action)
         terminated = np.array([terminated])
-        reward = np.clip(reward, -1, 1)
         
-        observation = process_inputs(observation,
-                                               linear_scale=linear_scale,
-                                               augmentation=False)
+        if args['process_inputs']:
+            observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
         
-        current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], axis=-1)
+        current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
         
-        replay_buffer.add(observation, action, reward, terminated)
-                
-        # perform gradient updates by sampling from replay buffer (if possible):
-        for _ in range(replay_ratio):
-            num_gradient_updates += 1
-            # print("elements in buffer:", replay_buffer.num_elements())
-            if replay_buffer.num_elements() < initial_collect_steps:
-                break
-                
-            update_horizon = round(update_horizon_scheduler(num_gradient_updates))
-            gamma = gamma_scheduler(num_gradient_updates)
+        episode_rewards[-1] += reward
+        
+        if args['clip_reward']:
+            reward = np.clip(reward, -1, 1)
             
-            # sample a batch from the replay buffer
-            (observations, # (batch_size, subseq_len, *obs_shape, stack_size)
-            actions, # (batch_size, subseq_len)
-            rewards, # (batch_size, subseq_len)
-            returns, # (batch_size, subseq_len)
-            discounts,
-            next_states, # (batch_size, subseq_len, *obs_shape, stack_size)
-            next_actions, # (batch_size, subseq_len)
-            next_rewards, # (batch_size, subseq_len)
-            terminals, # (batch_size, subseq_len)
-            same_trajectory, # (batch_size, subseq_len)
-            indices # (batch_size, )
-            ) = replay_buffer.sample_transition_batch(update_horizon=update_horizon,
+        replay_buffer.add(observation, action, reward, terminated)
+        
+        if terminated:
+            obs = env.reset()
+            if args['process_inputs']:
+                obs = process_inputs(obs, linear_scale=args['linear_scale'], augmentation=False)
+            current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+            episode_rewards.append(0.0)
+        
+        if t > args['initial_collect_steps']:
+            update_horizon = agent.update_horizon_scheduler(num_grad_steps)
+            gamma = agent.gamma_scheduler(num_grad_steps)
+            
+            for s in range(args['replay_ratio']):
+                num_grad_steps += 1
+                batch = replay_buffer.sample_transition_batch(update_horizon=update_horizon,
                                                       gamma=gamma, 
                                                       subseq_len=update_horizon)
-                                    
-            # swap batch and time dimensions
-            next_states = tf.transpose(next_states, perm=[1,0,2,3,4])
-                        
-            first_state = observations[:,0,:,:,:] # (84, 84, 4)
-            
-            # with tape active, FF to predict Q values and future state representations
-            with tf.GradientTape() as tape:
-                q_values, spr_predictions, _ = bbf_online(first_state, do_rollout=True, actions=next_actions[:,:spr_prediction_depth])
                 
-                # compute targets
-                spr_targets = tf.vectorized_map(lambda x: bbf_target.encode_project(x, True, False), next_states[:spr_prediction_depth])
-                # ! should we be passing in next_rewards instead of rewards
-                q_targets = get_target_q_values(rewards, terminals, discounts, bbf_target, next_states, update_horizon)
+                agent.train_step(update_horizon, *batch)
                 
-                # compute TD error and SPR loss
-                td_error = compute_RL_loss(q_targets, q_values, actions)
-                spr_loss = compute_spr_loss(spr_targets, spr_predictions, same_trajectory[:, :spr_prediction_depth])
+                if s % args['target_update_frequency'] == 0:
+                    agent.update_target()
                 
-                td_error = tf.reduce_mean(td_error)
-                spr_loss = tf.reduce_mean(spr_loss)
-                                
-                loss = td_error + spr_loss_weight * spr_loss
-            
-            gradients = tape.gradient(loss, bbf_online.trainable_variables)
-            optimizer.apply_gradients(zip(gradients, bbf_online.trainable_variables))
-            
-            all_losses = {
-                "Total Loss": loss.numpy(),
-                "TD Error": td_error.numpy(),
-                "SPR Loss": spr_loss.numpy()
-            }
-            
-            print(all_losses)
-            
-            # update target networks with EMAs
-            if num_steps % target_update_period == 0:
-                target_weights = get_weight_dict(bbf_target)
-                online_weights = get_weight_dict(bbf_online)
-                new_target_weights = interpolate_weights(target_weights, online_weights, tau)
-                set_weights(bbf_target, new_target_weights)
+                if s % args['reset_every'] == 0:
+                    agent.reset_weights()
         
-        # shrink-and-perturb every 40,000 gradient steps
-        if num_gradient_updates % 40000 == 0:
-            new_weights = weights_reset(get_weight_dict(bbf_online))
-            set_weights(bbf_online, new_weights)
-            #! should I do smth with the target network too?
-                        
-        # evaluate performance and log
+        num_episodes = len(episode_rewards)
+        if num_episodes > 100:
+            mean_reward = np.mean(episode_rewards[-101:-1])
+        
+        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['eval_frequency']:
+            if max_mean_reward is None or mean_reward > max_mean_reward:
+                max_mean_reward = mean_reward
+                print(f"improvement in mean_100ep_reward: {max_mean_reward}")
+            else:
+                print(f"No improvement in max mean_100ep_reward. Achieved: {mean_reward}, max: {max_mean_reward}")
+        
+        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['eval_frequency']:
+            eval_mean_reward = evaluate(agent, env)
+            checkpoint.step.assign_add(1)
+            save_path = manager.save()
+            print(f"Evaluation reward at {t} step is {eval_mean_reward}")
+            with test_writer.as_default():
+                tf.summary.scalar('eval_reward', eval_mean_reward, step=t)
+        
+        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['train_log_frequency']:
+            with train_writer.as_default():
+                tf.summary.scalar("mean_100ep_reward", mean_reward, step=t)
+            
+            with train_writer.as_default():
+                agent.layers_summary(t)
+   
+def evaluate(agent: Agent, env, args, restore=False, play=False):
+    if restore:
+        checkpoint = tf.train.checkpoint(model=agent.online_model())
+        latest_snapshot= tf.train.latest_checkpoint(args['model_dir'])
+        if not latest_snapshot:
+            raise Exception(f"No model snapshot found in {args['model_dir']}")
+        
+        checkpoint.restore(latest_snapshot)
+        print("Restored model from latest snapshot")
+    
+    observation, _ = env.reset()
+    
+    eval_episode_rewards = [0.0]
+    
+    if args['process_inputs']:
+        observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
 
-if __name__ == "__main__":
+    current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+    epsilon = args['evaluation_epsilon']
+    
+    while True:
+        action = agent.choose_action(current_state, epsilon)
+        observation, reward, terminated, truncated, info = env.step(action)
+        if args['process_inputs']:
+            observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+        current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+        
+        eval_episode_rewards[-1] += reward
+        
+        eval_mean_reward = np.mean(eval_episode_rewards)
+        
+        if terminated:
+            observation, _ = env.reset()
+            if args['process_inputs']:
+                observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+            current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], axis=-1)
+            
+            num_episodes = len(eval_episode_rewards)
+            if restore:
+                print(f"Mean reward after {num_episodes} episodes is {round(eval_mean_reward, 2)}")
+            if play:
+                break
+            if num_episodes >= args['evaluation_episodes']:
+                break
+            eval_episode_rewards.append(0.0)
+    
+    return round(eval_mean_reward, 2)
+        
+
+def main():
     config_fname = "config.yaml"
     with open(config_fname, 'r') as file:
-        args = yaml.safe_load(file)
+        config_args = yaml.safe_load(file)
         
-    train_model(args)    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train', help='train an agent to find optimal policy', action='store_true')
+    parser.add_argument('--evaluate', help='evaluate trained policy of an agent', action='store_true')
+    parser.add_argument('--play', help='let trained agent play', action='store_true')
+    # parser.add_argument('--env', nargs=1, help='env used for DQN', type=str)
+    
+    terminal_args = parser.parse_args()
+    
+    render_mode = 'human' if terminal_args.play else 'rgb_array'
+    
+    env = gym.make(config_args['game'], 
+                   render_mode="human", 
+                   obs_type='grayscale', 
+                   frameskip=config_args['frameskip'])
+    
+    n_actions = env.action_space.n
+    
+    agent = Agent(config_args['stack_frames'], 
+                  config_args['encoder_network'],
+                  n_actions,
+                  config_args['hidden_dim'],
+                  config_args['learning_rate'],
+                  config_args['weight_decay'],
+                  config_args['start_gamma'],
+                  config_args['end_gamma'],
+                  config_args['target_action_selection'],
+                  config_args['spr_loss_weight'],
+                  config_args['start_update_horizon'],
+                  config_args['end_update_horizon'],
+                  config_args['target_ema_tau'],
+                  config_args['shrink_factor'],
+                  config_args['spr_prediction_depth'],
+                  (84, 84),
+                  config_args['renormalize'] # ! not implemented
+                  )
+    
+    if terminal_args.train:
+        train(agent, env, config_args)
+    
+    if terminal_args.evaluate:
+        test_env = gym.wrappers.Monitor(env, config_args['video_dir']+'testing', force=True)
+        evaluate(agent, test_env, config_args)
+        test_env.close()
+    
+    if terminal_args.play:
+        play_env = gym.wrappers.Monitor(env, config_args['video_dir']+'play', force=True)
+        evaluate(agent, play_env)
+        play_env.close()
+    
+    env.close()
+    
+if __name__ == "__main__":
+    print("GPU Available: ", tf.test.is_gpu_available())
+    main()
 
-# TODO 
-# next_rewards or rewards?
-# check how I'm computing the losses - maybe use returns and vectorized operations
-# logging / saving models
-# eval
-# update_horizon vs. subseq_len in replay buffer?
-# setup on Oscar
-
-
-## BBF
-# look at 'jumps' - is that frameskip?
-# Look at AtariPreprocessing class
-# Look at DataEfficientAtariRunner - set up a similar agent
-#   https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/eval_run_experiment.py#L173
-# set up human normalized score thing so we can compare
+        
+    
