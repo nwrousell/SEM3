@@ -75,8 +75,7 @@ def train(agent: Agent, env, args):
         epsilon = linearly_decaying_epsilon(args['epsilon_decay_period'], t, args['initial_collect_steps'], args['epsilon_train'])
         
         action = agent.choose_action(current_state, epsilon)
-        observation, reward, terminated, truncated, info = env.step(action)
-        terminated = np.array([terminated])
+        observation, reward, terminated, _, _ = env.step(action)
         
         if args['process_inputs']:
             observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
@@ -88,9 +87,10 @@ def train(agent: Agent, env, args):
         if args['clip_reward']:
             reward = np.clip(reward, -1, 1)
             
-        replay_buffer.add(observation, action, reward, terminated)
+        replay_buffer.add(observation, action, reward, np.array([int(terminated)]))
         
         if terminated:
+            print("TERMINATED")
             observation, _ = env.reset()
             if args['process_inputs']:
                 observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
@@ -116,19 +116,22 @@ def train(agent: Agent, env, args):
                     agent.reset_weights()
         
         num_episodes = len(episode_rewards)
-        if num_episodes > 100:
-            mean_reward = np.mean(episode_rewards[-101:-1])
+        if num_episodes > args['min_episodes']:
+            mean_reward = np.mean(episode_rewards[-11:-1])
         
-        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
+        if num_grad_steps > 0:
+            print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
+        
+        if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
             if max_mean_reward is None or mean_reward > max_mean_reward:
                 max_mean_reward = mean_reward
-                print(f"improvement in mean_100ep_reward: {max_mean_reward}")
+                print(f"improvement in mean_{args['min_episodes']}ep_reward: {max_mean_reward}")
             else:
                 print(f"No improvement in max mean_100ep_reward. Achieved: {mean_reward}, max: {max_mean_reward}")
             elapsed = time() - start_time
             print(f"Environment steps: {t}. Gradient updates: {num_grad_steps}. TD error: {td_error}. SPR error: {spr_error}. Time elapsed: {elapsed}s")
         
-        if num_episodes > 100 and t > args['initial_collect_steps'] and t % args['eval_frequency'] == 0:
+        if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['eval_frequency'] == 0:
             eval_mean_reward = evaluate(agent, env)
             checkpoint.step.assign_add(1)
             save_path = manager.save()
@@ -136,9 +139,9 @@ def train(agent: Agent, env, args):
             with test_writer.as_default():
                 tf.summary.scalar('eval_reward', eval_mean_reward, step=t)
         
-        if num_episodes > 100 and t > args['initial_collect_steps'] and t % (args['train_log_frequency']*100) == 0:
+        if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % (args['train_log_frequency']*100) == 0:
             with train_writer.as_default():
-                tf.summary.scalar("mean_100ep_reward", mean_reward, step=t)
+                tf.summary.scalar(f"mean_{args['min_episodes']}ep_reward", mean_reward, step=t)
                 tf.summary.scalar("td_error", td_error, step=t)
                 tf.summary.scalar("spr_error", spr_error, step=t)
             
@@ -167,9 +170,11 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     
     while True:
         action = agent.choose_action(current_state, epsilon)
-        observation, reward, terminated, truncated, info = env.step(action)
+        observation, reward, terminated, _, _ = env.step(action)
+        
         if args['process_inputs']:
             observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+            
         current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
         
         eval_episode_rewards[-1] += reward
@@ -212,7 +217,7 @@ def main():
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
     env = gym.make(config_args['game'], 
-                   render_mode="rgb_array", 
+                   render_mode="human", 
                    obs_type='grayscale', 
                    frameskip=config_args['frameskip'])
     

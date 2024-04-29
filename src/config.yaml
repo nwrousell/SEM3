@@ -1,13 +1,13 @@
 # BBF config: https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/configs/BBF.gin
 
-game: 'Assault-v4' # 'Amidar-v4' | 'Assault-v4'
+game: 'AssaultDeterministic-v4' # 'Amidar-v4' | 'Assault-v4'
 batch_size: 32
 subseq_len: 10
 target_ema_tau: 0.995 # how much to interpolate weights for the EMA of the target network
 epsilon: 0.05 
 epsilon_decay_period: 2001
 epsilon_train: 0.00
-initial_collect_steps: 500
+initial_collect_steps: 2000
 learning_rate: 0.0001
 weight_decay: 0.1
 frameskip: 4
@@ -38,6 +38,7 @@ evaluation_epsilon: 0.001
 
 replay_capacity: 200000
 reset_every: 40_000
+min_episodes: 5
 num_env_steps: 100_000 # Atari 100k
 
 ## Pre-processing
@@ -50,3 +51,4 @@ video_dir: '../videos/'
 eval_frequency: 10000 # eval every 10k frames
 train_log_frequency: 4
 print_frequency: 10
+evaluation_episodes: 10
