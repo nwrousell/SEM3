@@ -139,6 +139,8 @@ def train(agent: Agent, env, args):
         if num_episodes > 100 and t > args['initial_collect_steps'] and t % (args['train_log_frequency']*100) == 0:
             with train_writer.as_default():
                 tf.summary.scalar("mean_100ep_reward", mean_reward, step=t)
+                tf.summary.scalar("td_error", td_error, step=t)
+                tf.summary.scalar("spr_error", spr_error, step=t)
             
             with train_writer.as_default():
                 agent.layers_summary(t)
