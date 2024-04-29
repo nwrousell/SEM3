@@ -49,4 +49,4 @@ model_dir: '../runs/models/'
 video_dir: '../videos/'
 eval_frequency: 10000 # eval every 10k frames
 train_log_frequency: 4
-print_frequency: 100
+print_frequency: 10

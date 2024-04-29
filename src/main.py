@@ -212,7 +212,7 @@ def main():
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
     env = gym.make(config_args['game'], 
-                   render_mode="human", 
+                   render_mode="rgb_array", 
                    obs_type='grayscale', 
                    frameskip=config_args['frameskip'])
     
@@ -253,7 +253,7 @@ def main():
     env.close()
     
 if __name__ == "__main__":
-    print("Devices available: ", tf.config.list_physical_devices('GPU'))
+    print("\nDevices available: ", tf.config.list_physical_devices('GPU'))
     main()
 
 

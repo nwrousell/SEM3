@@ -54,7 +54,9 @@ class Agent:
         _ = self.online_model(fake_state, do_rollout=True, actions=np.random.randint(0,  n_actions, (1, spr_prediction_depth)))
         _ = self.target_model(fake_state, do_rollout=True, actions=np.random.randint(0, n_actions, (1, spr_prediction_depth)))
         
-        print(self.online_model.summary())
+        #print(_)
+
+        #print(self.online_model.summary())
         # print(bbf_online.encoder.summary())
         
         # initially, set target network to clone of online network

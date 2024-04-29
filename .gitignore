@@ -1,4 +1,8 @@
 env
 roms
+runs
 
 src/__pycache__
+
+*.simg
+*.out
