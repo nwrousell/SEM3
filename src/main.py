@@ -63,6 +63,7 @@ def train(agent: Agent, env, args):
     episode_rewards = [0.0]
     max_mean_reward = None
     num_grad_steps = 0
+    prev_num_episodes_log = -1
     
     start_time = time()
     
@@ -117,38 +118,44 @@ def train(agent: Agent, env, args):
         
         num_episodes = len(episode_rewards)
         if num_episodes > args['min_episodes']:
-            mean_reward = np.mean(episode_rewards[-11:-1])
+            mean_reward = np.mean(episode_rewards[-(args['min_episodes']+1):-1])
         
-        if num_grad_steps > 0:
-            print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
+        # if num_grad_steps > 0:
+        #     print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
         
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
-            if max_mean_reward is None or mean_reward > max_mean_reward:
-                max_mean_reward = mean_reward
-                print(f"improvement in mean_{args['min_episodes']}ep_reward: {max_mean_reward}")
-            else:
-                print(f"No improvement in max mean_100ep_reward. Achieved: {mean_reward}, max: {max_mean_reward}")
-            elapsed = time() - start_time
-            print(f"Environment steps: {t}. Gradient updates: {num_grad_steps}. TD error: {td_error}. SPR error: {spr_error}. Time elapsed: {elapsed}s")
+            print(f"Gradient steps: {num_grad_steps}. Environment steps: {t}")
+            if num_episodes != prev_num_episodes_log:
+                elapsed = time() - start_time
+                print(f"Finished episode #{num_episodes-1} with reward: {episode_rewards[-2]}")
+                prev_num_episodes_log = num_episodes
+                print(f"- Num episodes: {num_episodes}\n- TD error: {td_error}\n- SPR error: {spr_error}\n- Time elapsed: {elapsed}s\n- Epsilon: {epsilon}\n- Update horizon: {update_horizon}\n- Gamma: {gamma}")
+                if max_mean_reward is None or mean_reward > max_mean_reward:
+                    max_mean_reward = mean_reward
+                    print(f"improvement in mean_{args['min_episodes']}ep_reward: {max_mean_reward}")
+                else:
+                    print(f"No improvement in max mean_{args['min_episodes']}ep_reward. Achieved: {mean_reward}, max: {max_mean_reward}")
+                print()
+
+                with train_writer.as_default():
+                    tf.summary.scalar(f"ep{num_episodes}_reward", episode_rewards[-2], step=t)
+                    tf.summary.scalar("td_error", td_error, step=t)
+                    tf.summary.scalar("spr_error", spr_error, step=t)
+
+                if num_episodes % 5 == 0:
+                    with train_writer.as_default():
+                        agent.layers_summary(t)
         
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['eval_frequency'] == 0:
-            eval_mean_reward = evaluate(agent, env)
+            eval_mean_reward = evaluate(agent, env, args)
             checkpoint.step.assign_add(1)
             save_path = manager.save()
             print(f"Evaluation reward at {t} step is {eval_mean_reward}")
             with test_writer.as_default():
                 tf.summary.scalar('eval_reward', eval_mean_reward, step=t)
-        
-        if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % (args['train_log_frequency']*100) == 0:
-            with train_writer.as_default():
-                tf.summary.scalar(f"mean_{args['min_episodes']}ep_reward", mean_reward, step=t)
-                tf.summary.scalar("td_error", td_error, step=t)
-                tf.summary.scalar("spr_error", spr_error, step=t)
-            
-            with train_writer.as_default():
-                agent.layers_summary(t)
    
 def evaluate(agent: Agent, env, args, restore=False, play=False):
+    print("beginning evaluation")
     if restore:
         checkpoint = tf.train.checkpoint(model=agent.online_model())
         latest_snapshot= tf.train.latest_checkpoint(args['model_dir'])
@@ -189,7 +196,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
             
             num_episodes = len(eval_episode_rewards)
             if restore:
-                print(f"Mean reward after {num_episodes} episodes is {round(eval_mean_reward, 2)}")
+                print(f"[Eval] Mean reward after {num_episodes} episodes is {round(eval_mean_reward, 2)}")
             if play:
                 break
             if num_episodes >= args['evaluation_episodes']:
@@ -217,7 +224,7 @@ def main():
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
     env = gym.make(config_args['game'], 
-                   render_mode="human", 
+                   render_mode="rgb_array", 
                    obs_type='grayscale', 
                    frameskip=config_args['frameskip'])
     
@@ -262,7 +269,11 @@ if __name__ == "__main__":
     main()
 
 
-# get running on Oscar
+# Look at summary writer and checkpoint stuff (can we name runs?)
+# if needed, look into using 2 GPUs / some optimization (by some rough calculation it'll take ~100 hours for 100k frames and we only have 48...)
+#   would more cores or memory help?
+
+# figure out metrics/comparison with BBF / CASL
 
 # data augmentation
 # what to do to target network during reset?

@@ -6,3 +6,5 @@ src/__pycache__
 
 *.simg
 *.out
+*.out.save
+*.out.save.1
