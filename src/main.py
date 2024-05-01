@@ -40,11 +40,12 @@ def linearly_decaying_epsilon(decay_period, step, warmup_steps, epsilon):
     return epsilon + bonus
     
     
-def train(agent: Agent, env, args):
-    train_writer = tf.summary.create_file_writer(args['summaries_dir']+'train')
-    test_writer = tf.summary.create_file_writer(args['summaries_dir']+'test')
-    checkpoint = tf.train.Checkpoint(step=tf.Variable(0), optimizer=agent.optimizer, model=agent.online_model)
-    manager = tf.train.CheckpointManager(checkpoint, args['model_dir'], max_to_keep=3)
+def train(agent: Agent, env, args, strategy):
+    with strategy.scope():
+        train_writer = tf.summary.create_file_writer(args['summaries_dir']+'train')
+        test_writer = tf.summary.create_file_writer(args['summaries_dir']+'test')
+        checkpoint = tf.train.Checkpoint(step=tf.Variable(0), optimizer=agent.optimizer, model=agent.online_model)
+        manager = tf.train.CheckpointManager(checkpoint, args['model_dir'], max_to_keep=3)
     
     replay_buffer = ReplayBuffer(data_spec, 
                                  replay_capacity=args['replay_capacity'], 
@@ -66,6 +67,24 @@ def train(agent: Agent, env, args):
     prev_num_episodes_log = -1
     
     start_time = time()
+    
+    def gen(update_horizon, gamma):
+        batch = replay_buffer.sample_transition_batch(update_horizon=update_horizon,
+                                                      gamma=gamma, 
+                                                      subseq_len=update_horizon)
+        return batch
+    
+    dataset = tf.data.Dataset.from_generator(
+        gen,
+        output_signature=data_spec,
+        args=(agent.update_horizon_scheduler, agent.gamma_scheduler)
+    )
+    
+    
+    def distributed_train_step(dataset_inputs, update_horizon):
+        per_replica_losses = strategy.run(lambda batch: agent.train_step(update_horizon, *batch), args=(dataset_inputs,))
+        return strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses,
+                                axis=None)
     
     if args['process_inputs']:
         observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
@@ -108,7 +127,8 @@ def train(agent: Agent, env, args):
                                                       gamma=gamma, 
                                                       subseq_len=update_horizon)
                     
-                loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
+                # loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
+                distributed_train_step(update_horizon, *batch)
                 
                 if num_grad_steps % args['target_update_frequency'] == 0:
                     agent.update_target()
@@ -217,6 +237,7 @@ def main():
     parser.add_argument('--train', help='train an agent to find optimal policy', action='store_true')
     parser.add_argument('--evaluate', help='evaluate trained policy of an agent', action='store_true')
     parser.add_argument('--play', help='let trained agent play', action='store_true')
+    parser.add_argument('--distributed', help="whether to train in a distributed fashion", action='store_true')
     # parser.add_argument('--env', nargs=1, help='Atari 2600 game used as environment', type=str)
     
     terminal_args = parser.parse_args()
@@ -230,27 +251,34 @@ def main():
     
     n_actions = env.action_space.n
     
-    agent = Agent(config_args['stack_frames'], 
-                  config_args['encoder_network'],
-                  n_actions,
-                  config_args['hidden_dim'],
-                  config_args['learning_rate'],
-                  config_args['weight_decay'],
-                  config_args['start_gamma'],
-                  config_args['end_gamma'],
-                  config_args['target_action_selection'],
-                  config_args['spr_loss_weight'],
-                  config_args['start_update_horizon'],
-                  config_args['end_update_horizon'],
-                  config_args['target_ema_tau'],
-                  config_args['shrink_factor'],
-                  config_args['spr_prediction_depth'],
-                  (84, 84),
-                  config_args['renormalize'] # ! not implemented
-                  )
+    strategy = None
+    
+    if terminal_args.distributed:
+        strategy = tf.distribute.MirroredStrategy()
+        print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
+    
+    agent = Agent(strategy,
+                config_args['stack_frames'], 
+                config_args['encoder_network'],
+                n_actions,
+                config_args['hidden_dim'],
+                config_args['learning_rate'],
+                config_args['weight_decay'],
+                config_args['start_gamma'],
+                config_args['end_gamma'],
+                config_args['target_action_selection'],
+                config_args['spr_loss_weight'],
+                config_args['start_update_horizon'],
+                config_args['end_update_horizon'],
+                config_args['target_ema_tau'],
+                config_args['shrink_factor'],
+                config_args['spr_prediction_depth'],
+                (84, 84),
+                config_args['renormalize'] # ! not implemented
+                )
     
     if terminal_args.train:
-        train(agent, env, config_args)
+        train(agent, env, config_args, strategy)
     
     if terminal_args.evaluate:
         test_env = gym.wrappers.Monitor(env, config_args['video_dir']+'testing', force=True)

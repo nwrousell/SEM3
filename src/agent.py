@@ -42,6 +42,7 @@ def create_in_process_cluster(num_workers, num_ps):
 class Agent:
     def __init__(
         self,
+        strategy,
         stack_frames,
         encoder_network,
         n_actions,
@@ -72,18 +73,21 @@ class Agent:
         ##########################################
         NUM_WORKERS = 2
         NUM_PS = 2
-        cluster_resolver = create_in_process_cluster(NUM_WORKERS, NUM_PS)
+        # cluster_resolver = create_in_process_cluster(NUM_WORKERS, NUM_PS)
         
-        variable_partitioner = (
-            tf.distribute.experimental.partitioners.MinSizePartitioner(
-                min_shard_bytes=(256 << 10),
-                max_shards=NUM_PS))
+        # variable_partitioner = (
+        #     tf.distribute.experimental.partitioners.MinSizePartitioner(
+        #         min_shard_bytes=(256 << 10),
+        #         max_shards=NUM_PS))
 
-        self.strategy = tf.distribute.ParameterServerStrategy(
-                cluster_resolver,
-                variable_partitioner=variable_partitioner)
+        # self.strategy = tf.distribute.ParameterServerStrategy(
+        #         cluster_resolver,
+        #         variable_partitioner=variable_partitioner)
         
+        self.strategy = strategy
+    
         with self.strategy.scope():
+            self.num_grad_steps = 0
 
             self.online_model = BBFModel(input_shape=(*input_shape, stack_frames), 
                             encoder_network=encoder_network,
@@ -102,14 +106,13 @@ class Agent:
                             renormalize=renormalize
                             )
             self.target_model.trainable = False
-        
-        #################################################################
-        
-        fake_state = np.zeros((1, *input_shape, stack_frames))
-        _ = self.online_model(fake_state, do_rollout=True, actions=np.random.randint(0,  n_actions, (1, spr_prediction_depth)))
-        _ = self.target_model(fake_state, do_rollout=True, actions=np.random.randint(0, n_actions, (1, spr_prediction_depth)))
-        
-        #print(_)
+            fake_state = np.zeros((1, *input_shape, stack_frames))
+            _ = self.online_model(fake_state, do_rollout=True, actions=np.random.randint(0,  n_actions, (1, spr_prediction_depth)))
+            _ = self.target_model(fake_state, do_rollout=True, actions=np.random.randint(0, n_actions, (1, spr_prediction_depth)))
+            self.huber_loss = tf.keras.losses.Huber()
+            self.compute_spr_error = self.compute_spr_error
+            self.compute_td_error = self.compute_td_error
+            self.get_target_q_values = self.get_target_q_values
 
         #print(self.online_model.summary())
         # print(bbf_online.encoder.summary())
@@ -119,10 +122,15 @@ class Agent:
         self.target_model.set_weights(online_weights)
         
         # self.optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay)
-        self.huber_loss = tf.keras.losses.Huber()
         
-        self.gamma_scheduler = exponential_decay_scheduler(10000, 0, start_gamma, end_gamma)
-        self.update_horizon_scheduler = exponential_decay_scheduler(10000, 0, start_update_horizon, end_update_horizon)
+        self._gamma_scheduler = exponential_decay_scheduler(10000, 0, start_gamma, end_gamma)
+        self._update_horizon_scheduler = exponential_decay_scheduler(10000, 0, start_update_horizon, end_update_horizon)
+    
+    def gamma_scheduler(self):
+        return self._gamma_scheduler(self.num_grad_steps)
+    
+    def update_horizon_scheduler(self):
+        return self._update_horizon_scheduler(self.num_grad_steps)
     
     def choose_action(self, observation, epsilon):
         observation = observation[np.newaxis,:,:,:]
@@ -211,6 +219,7 @@ class Agent:
         
         gradients = tape.gradient(loss, self.online_model.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.online_model.trainable_variables))
+        self.num_grad_steps += 1
         
         # all_losses = {
         #     "Total Loss": loss.numpy(),
