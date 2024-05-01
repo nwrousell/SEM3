@@ -13,12 +13,12 @@ weight_decay: 0.1
 frameskip: 4
 stack_frames: 4
 renormalize: False
-target_update_frequency: 10
+target_update_frequency: 1
 target_action_selection: True # whether to use the target network for action selection during data collection
 
-hidden_dim: 2048 # size of the projection / prediction layers
+hidden_dim: 1024 # size of the projection / prediction layers
 num_atoms: 1 # for distributional Q-networks, ignore for now
-spr_loss_weight: 2 # relative to RL loss
+spr_loss_weight: 5 # relative to RL loss
 
 encoder_network: "ImpalaWide" # 'DQN' (3-layer CNN) or 'ImpalaWide' (15-layer ResNet)
 
@@ -47,7 +47,7 @@ linear_scale: True
 summaries_dir: '../runs/summaries/'
 model_dir: '../runs/models/'
 video_dir: '../videos/'
-eval_frequency: 3000 # eval every 10k frames
+eval_frequency: 5000
 train_log_frequency: 4
 print_frequency: 100
 evaluation_episodes: 5

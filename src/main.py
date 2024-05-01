@@ -114,6 +114,7 @@ def train(agent: Agent, env, args):
                     agent.update_target()
                 
                 if num_grad_steps % args['reset_every'] == 0:
+                    print("WEIGHTS RESET")
                     agent.reset_weights()
         
         num_episodes = len(episode_rewards)
@@ -147,9 +148,10 @@ def train(agent: Agent, env, args):
                         agent.layers_summary(t)
         
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['eval_frequency'] == 0:
-            eval_mean_reward = evaluate(agent, env, args)
             checkpoint.step.assign_add(1)
             save_path = manager.save()
+            print("saved current model")
+            eval_mean_reward = evaluate(agent, env, args)
             print(f"Evaluation reward at {t} step is {eval_mean_reward}")
             with test_writer.as_default():
                 tf.summary.scalar('eval_reward', eval_mean_reward, step=t)
@@ -157,7 +159,7 @@ def train(agent: Agent, env, args):
 def evaluate(agent: Agent, env, args, restore=False, play=False):
     print("beginning evaluation")
     if restore:
-        checkpoint = tf.train.checkpoint(model=agent.online_model())
+        checkpoint = tf.train.Checkpoint(model=agent.online_model)
         latest_snapshot= tf.train.latest_checkpoint(args['model_dir'])
         if not latest_snapshot:
             raise Exception(f"No model snapshot found in {args['model_dir']}")
@@ -178,7 +180,9 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     while True:
         action = agent.choose_action(current_state, epsilon)
         observation, reward, terminated, _, _ = env.step(action)
-        
+
+        # print("reward:", reward, action)
+
         if args['process_inputs']:
             observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
             
@@ -186,17 +190,16 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
         
         eval_episode_rewards[-1] += reward
         
-        eval_mean_reward = np.mean(eval_episode_rewards)
-        
         if terminated:
+            print("TERMINATED")
+            eval_mean_reward = np.mean(eval_episode_rewards)
             observation, _ = env.reset()
             if args['process_inputs']:
                 observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
             current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], axis=-1)
             
             num_episodes = len(eval_episode_rewards)
-            if restore:
-                print(f"[Eval] Mean reward after {num_episodes} episodes is {round(eval_mean_reward, 2)}")
+            print(f"[Eval] Mean reward after {num_episodes} episodes is {round(eval_mean_reward, 2)}")
             if play:
                 break
             if num_episodes >= args['evaluation_episodes']:
@@ -217,6 +220,7 @@ def main():
     parser.add_argument('--train', help='train an agent to find optimal policy', action='store_true')
     parser.add_argument('--evaluate', help='evaluate trained policy of an agent', action='store_true')
     parser.add_argument('--play', help='let trained agent play', action='store_true')
+    parser.add_argument('--vname', help="name prefix for video files")
     # parser.add_argument('--env', nargs=1, help='Atari 2600 game used as environment', type=str)
     
     terminal_args = parser.parse_args()
@@ -253,13 +257,13 @@ def main():
         train(agent, env, config_args)
     
     if terminal_args.evaluate:
-        test_env = gym.wrappers.Monitor(env, config_args['video_dir']+'testing', force=True)
+        test_env = gym.wrappers.Monitor(env, config_args['video_dir']+'testing')
         evaluate(agent, test_env, config_args)
         test_env.close()
     
     if terminal_args.play:
-        play_env = gym.wrappers.Monitor(env, config_args['video_dir']+'play', force=True)
-        evaluate(agent, play_env)
+        play_env = gym.wrappers.RecordVideo(env, config_args['video_dir']+'play', name_prefix=terminal_args.vname)
+        evaluate(agent, play_env, config_args, restore=True)
         play_env.close()
     
     env.close()
