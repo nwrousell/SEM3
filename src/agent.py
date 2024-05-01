@@ -22,6 +22,9 @@ class Agent:
         spr_prediction_depth=5,
         input_shape=(84,84),
         renormalize=False,
+        double_DQN=True,
+        distributional_DQN=True,
+        dueling_DQN=True
         ):
         
         self.spr_prediction_depth = spr_prediction_depth
@@ -31,6 +34,9 @@ class Agent:
         self.spr_loss_weight = spr_loss_weight
         self.target_ema_tau = target_ema_tau
         self.shrink_factor = shrink_factor
+        self.double_dqn = double_DQN
+        self.distributional_dqn = distributional_DQN
+        self.dueling_dqn = dueling_DQN
         
         
         self.online_model = BBFModel(input_shape=(*input_shape, stack_frames), 
@@ -99,15 +105,25 @@ class Agent:
         
         return spr_loss
 
-    def get_target_q_values(self, rewards, terminals, cumulative_gamma, target_network, next_states, update_horizon):
+    def get_target_q_values(self, rewards, terminals, cumulative_gamma, next_states, update_horizon):
         is_terminal_multiplier = 1.0 - terminals.astype(np.float32)
     
         # Incorporate terminal state to discount factor.
         gamma_with_terminal = cumulative_gamma * is_terminal_multiplier # (update_horizon, )
 
-        q_values = tf.vectorized_map(lambda s: target_network(s)[0], next_states) # (update_horizon, batch_size, num_actions)
+        q_values_target = tf.vectorized_map(lambda s: self.target_model(s)[0], next_states) # (update_horizon, batch_size, num_actions)
 
-        replay_q_values = tf.reduce_max(q_values, axis=2) # (update_horizon, batch_size)
+        if self.double_dqn:
+            q_values_online = tf.vectorized_map(lambda s: self.online_model(s)[0], next_states)
+            action_selection = tf.argmax(q_values_online, axis=-1)
+        else:
+            action_selection = tf.argmax(q_values_target, axis=-1)
+                    
+        shape = q_values_target.shape.as_list()
+        xy_ind = np.stack(np.mgrid[:shape[0], :shape[1]], axis=-1)
+        gather_ind = tf.concat([xy_ind, action_selection[..., None]], axis=-1)
+        replay_q_values = tf.gather_nd(q_values_target, gather_ind)
+                
         replay_q_values = tf.transpose(replay_q_values) # (batch_size, update_horizon)
             
         # TODO - rewrite with vectorized operations to replace for loop
@@ -143,7 +159,7 @@ class Agent:
             
             # compute targets
             spr_targets = tf.vectorized_map(lambda x: self.target_model.encode_project(x, True, False), next_states[:self.spr_prediction_depth])
-            q_targets = self.get_target_q_values(next_rewards, terminals, discounts, self.target_model, next_states, update_horizon)
+            q_targets = self.get_target_q_values(next_rewards, terminals, discounts, next_states, update_horizon)
             
             # compute TD error and SPR loss
             td_error = self.compute_td_error(q_values, actions, q_targets)

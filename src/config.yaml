@@ -13,6 +13,9 @@ weight_decay: 0.1
 frameskip: 4
 stack_frames: 4
 renormalize: False
+double_DQN: True
+distributional_DQN: False
+dueling_DQN: False
 target_update_frequency: 1
 target_action_selection: True # whether to use the target network for action selection during data collection
 

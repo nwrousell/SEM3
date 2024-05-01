@@ -252,7 +252,10 @@ def main():
                   config_args['shrink_factor'],
                   config_args['spr_prediction_depth'],
                   (84, 84),
-                  config_args['renormalize'] # ! not implemented
+                  config_args['renormalize'], # ! not implemented
+                  config_args['double_DQN'],
+                  config_args['distributional_DQN'],
+                  config_args['dueling_DQN'],
                   )
     
     if terminal_args.train:
