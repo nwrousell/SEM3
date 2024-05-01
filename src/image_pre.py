@@ -3,13 +3,6 @@ import cv2
 import tensorflow as tf
 
 
-# def resize_image(self,image):
-    
-# Github Paper: https://github.com/spragunr/deep_q_rl/tree/master
-
-# either linearly scales or center crops + the data + the augmentation
-# linear: bool -> if False, center crop if True, linear scale
-
 def central_crop(image, crop_height, crop_width):
     # fix this logic maybe its mad wack 
     height, width = image.shape[:2]
@@ -22,63 +15,60 @@ def central_crop(image, crop_height, crop_width):
 
     return cropped_image
 
-def process_inputs(image, linear_scale: bool, augmentation: bool): 
+def process_inputs(image, scale_type: str, augmentation=False): 
     crop_height, crop_width = 84, 84  # Desired crop size 
     # original_height, original_width = 210, 160  # Original image size 
 
     image = image.astype(np.float32) / 255.0 
 
     # central_fraction = min(crop_height/original_height, crop_width/original_width) 
-    if linear_scale: 
+    if scale_type == 'linear': 
         # linearly scale it 
         return cv2.resize(image, 
                               (crop_height, crop_width), 
                               interpolation=cv2.INTER_LINEAR) 
-    else: 
+    elif scale_type == 'crop': 
         # fix this part of it 
         # image = tf.expand_dims(image, axis=-1) 
         return central_crop(image, crop_height, crop_width)
+    else:
+        return image;
 
-# figure out center_crop + Random_crop
-test_size = np.zeros((210,160)) 
-print(process_inputs(test_size,True,True).shape) 
-        # linearly scale it down 
-# tf.image.random_crop(image, size=crop_size)        
-self.uses_augmentation = False
-        for aug in augmentation:
-            if aug == "affine":
-                transformation = random_affine(5, (.14, .14), (.9, 1.1), (-5, 5))
-                # eval_transformation = nn.Identity()
-                self.uses_augmentation = True
-            elif aug == "crop":
-                transformation = random_crop((84, 84))
-                # Crashes if aug-prob not 1: use CenterCrop((84, 84)) or Resize((84, 84)) in that case.
-                eval_transformation = central_crop((84, 84))
-                self.uses_augmentation = True
-                imagesize = 84
-            elif aug == "rrc":
-                transformation = random_resized_crop((100, 100), (0.8, 1))
-                # eval_transformation = nn.Identity()
-                self.uses_augmentation = True
-            elif aug == "blur":
-                transformation = GaussianBlur2d((5, 5), (1.5, 1.5))
-                # eval_transformation = nn.Identity()
-                self.uses_augmentation = True
-            elif aug == "shift":
-                image_padded = replication_pad_2d(image, [padding_size, padding_size, padding_size, padding_size])
-                # Apply RandomCrop
-                output_image = random_crop(image_padded, [crop_size[0], crop_size[1], tf.shape(image)[2]])  
-                # transformation = nn.Sequential(nn.ReplicationPad2d(4), RandomCrop((84, 84)))
-                # eval_transformation = nn.Identity()
-            elif aug == "intensity":
-                transformation = Intensity(scale=0.05)
-                # eval_transformation = nn.Identity()
-            elif aug == "none":
-                # transformation = eval_transformation = nn.Identity()
-            else:
-                raise NotImplementedError()
-            self.transforms.append(transformation)
-            self.eval_transforms.append(eval_transformation)    
+# self.uses_augmentation = False
+#         for aug in augmentation:
+#             if aug == "affine":
+#                 transformation = random_affine(5, (.14, .14), (.9, 1.1), (-5, 5))
+#                 # eval_transformation = nn.Identity()
+#                 self.uses_augmentation = True
+#             elif aug == "crop":
+#                 transformation = random_crop((84, 84))
+#                 # Crashes if aug-prob not 1: use CenterCrop((84, 84)) or Resize((84, 84)) in that case.
+#                 eval_transformation = central_crop((84, 84))
+#                 self.uses_augmentation = True
+#                 imagesize = 84
+#             elif aug == "rrc":
+#                 transformation = random_resized_crop((100, 100), (0.8, 1))
+#                 # eval_transformation = nn.Identity()
+#                 self.uses_augmentation = True
+#             elif aug == "blur":
+#                 transformation = GaussianBlur2d((5, 5), (1.5, 1.5))
+#                 # eval_transformation = nn.Identity()
+#                 self.uses_augmentation = True
+#             elif aug == "shift":
+#                 image_padded = replication_pad_2d(image, [padding_size, padding_size, padding_size, padding_size])
+#                 # Apply RandomCrop
+#                 output_image = random_crop(image_padded, [crop_size[0], crop_size[1], tf.shape(image)[2]])  
+#                 # transformation = nn.Sequential(nn.ReplicationPad2d(4), RandomCrop((84, 84)))
+#                 # eval_transformation = nn.Identity()
+#             elif aug == "intensity":
+#                 transformation = Intensity(scale=0.05)
+#                 # eval_transformation = nn.Identity()
+#             elif aug == "none":
+#                 # transformation = eval_transformation = nn.Identity()
+#             else:
+#                 raise NotImplementedError()
+#             self.transforms.append(transformation)
+#             self.eval_transforms.append(eval_transformation)    
 
 class Intensity(tf.keras.layers.Layer):
     def __init__(self, scale):

@@ -272,6 +272,7 @@ def main():
     
 if __name__ == "__main__":
     print("\nDevices available: ", tf.config.list_physical_devices('GPU'))
+    print(tf.test.gpu_device_name())
     main()
 
 
