@@ -68,7 +68,7 @@ def train(agent: Agent, env, args):
     start_time = time()
     
     if args['process_inputs']:
-        observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+        observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
 
     current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     
@@ -79,7 +79,7 @@ def train(agent: Agent, env, args):
         observation, reward, terminated, _, _ = env.step(action)
         
         if args['process_inputs']:
-            observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+            observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
         
         current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
         
@@ -94,7 +94,7 @@ def train(agent: Agent, env, args):
             print("TERMINATED")
             observation, _ = env.reset()
             if args['process_inputs']:
-                observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+                observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
             current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
             episode_rewards.append(0.0)
         
@@ -110,6 +110,8 @@ def train(agent: Agent, env, args):
                     
                 loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
                 
+                print(f"grad step {num_grad_steps}. td_error: {td_error}. spr_error: {spr_error}")
+
                 if num_grad_steps % args['target_update_frequency'] == 0:
                     agent.update_target()
                 
@@ -127,10 +129,10 @@ def train(agent: Agent, env, args):
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
             print(f"Gradient steps: {num_grad_steps}. Environment steps: {t}")
             if num_episodes != prev_num_episodes_log:
-                elapsed = time() - start_time
+                elapsed = (time() - start_time) // 60
                 print(f"Finished episode #{num_episodes-1} with reward: {episode_rewards[-2]}")
                 prev_num_episodes_log = num_episodes
-                print(f"- Num episodes: {num_episodes}\n- TD error: {td_error}\n- SPR error: {spr_error}\n- Time elapsed: {elapsed}s\n- Epsilon: {epsilon}\n- Update horizon: {update_horizon}\n- Gamma: {gamma}")
+                print(f"- Num episodes: {num_episodes}\n- TD error: {td_error}\n- SPR error: {spr_error}\n- Time elapsed: {elapsed}m\n- Epsilon: {epsilon}\n- Update horizon: {update_horizon}\n- Gamma: {gamma}")
                 if max_mean_reward is None or mean_reward > max_mean_reward:
                     max_mean_reward = mean_reward
                     print(f"improvement in mean_{args['min_episodes']}ep_reward: {max_mean_reward}")
@@ -172,7 +174,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     eval_episode_rewards = [0.0]
     
     if args['process_inputs']:
-        observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+        observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
 
     current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     epsilon = args['evaluation_epsilon']
@@ -184,7 +186,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
         # print("reward:", reward, action)
 
         if args['process_inputs']:
-            observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+            observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
             
         current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
         
@@ -195,7 +197,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
             eval_mean_reward = np.mean(eval_episode_rewards)
             observation, _ = env.reset()
             if args['process_inputs']:
-                observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+                observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
             current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], axis=-1)
             
             num_episodes = len(eval_episode_rewards)

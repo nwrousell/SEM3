@@ -10,21 +10,23 @@ import tensorflow as tf
 # either linearly scales or center crops + the data + the augmentation
 # linear: bool -> if False, center crop if True, linear scale
 
-def process_inputs(image, linear_scale: bool, augmentation: bool):
+def process_inputs(image, scale_type: str, augmentation = False):
     crop_height, crop_width = 84, 84  # Desired crop size
     original_height, original_width = 210, 160  # Original image size
 
     image = image.astype(np.float32) / 255.0
 
     central_fraction = min(crop_height/original_height, crop_width/original_width)
-    if linear_scale:
+    if scale_type == "linear":
         # linearly scale it 
         return cv2.resize(image,
                               (crop_height, crop_width),
                               interpolation=cv2.INTER_LINEAR)
-    else:
+    elif scale_type == "crop":
         image = tf.expand_dims(image, axis=-1)
         return tf.image.central_crop(image, central_fraction) 
+    elif scale_type == "none":
+        return image
 
 
         # linearly scale it down 

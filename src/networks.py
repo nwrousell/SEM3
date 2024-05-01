@@ -3,14 +3,9 @@ from tensorflow.keras.layers import Conv2D, MaxPool2D, BatchNormalization, ReLU,
 import numpy as np
 
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L315
-def renormalize(tensor, has_batch=False, is_rollout=False):
+def renormalize(tensor):
     shape = tensor.shape
-    if not has_batch:
-        tensor = tf.expand_dims(tensor, 0)
-    if not is_rollout:
-        tensor = tf.reshape(tensor, [tensor.shape[0], -1])
-    else:
-        tensor = tf.reshape(tensor, [tensor.shape[0], tensor.shape[1], -1])
+    tensor = tf.reshape(tensor, [tensor.shape[0], -1])
     max_value = tf.reduce_max(tensor, axis=-1, keepdims=True)
     min_value = tf.reduce_max(tensor, axis=-1, keepdims=True)
     return tf.reshape(((tensor - min_value) / (max_value - min_value + 1e-5)), shape)
@@ -131,7 +126,7 @@ class BBFModel(tf.keras.Model):
     def encode(self, x, has_batch=False, is_rollout=False):
         latent = self.encoder(x)
         if self.renormalize:
-            latent = renormalize(latent, has_batch, is_rollout)
+            latent = renormalize(latent)
         return latent
 
     def encode_project(self, x, has_batch=False, is_rollout=False):
@@ -152,7 +147,7 @@ class BBFModel(tf.keras.Model):
         x = self.TransitionCell(x)
                             
         if self.renormalize:
-            x = renormalize(x, True)
+            x = renormalize(x)
                 
         return x, x
     

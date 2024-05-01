@@ -12,11 +12,11 @@ learning_rate: 0.0001
 weight_decay: 0.1
 frameskip: 4
 stack_frames: 4
-renormalize: False
+renormalize: True
 target_update_frequency: 1
 target_action_selection: True # whether to use the target network for action selection during data collection
 
-hidden_dim: 1024 # size of the projection / prediction layers
+hidden_dim: 2048 # size of the projection / prediction layers
 num_atoms: 1 # for distributional Q-networks, ignore for now
 spr_loss_weight: 5 # relative to RL loss
 
@@ -42,7 +42,7 @@ num_env_steps: 100_000 # Atari 100k
 
 ## Pre-processing
 data_augmentation: False
-linear_scale: True
+scale_type: 'linear' # 'linear' or 'crop' or 'none'
 
 summaries_dir: '../runs/summaries/'
 model_dir: '../runs/models/'
