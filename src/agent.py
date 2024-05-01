@@ -1,6 +1,43 @@
 from networks import BBFModel
 import numpy as np
 import tensorflow as tf
+import portpicker
+import multiprocessing
+
+def create_in_process_cluster(num_workers, num_ps):
+  """Creates and starts local servers and returns the cluster_resolver."""
+  worker_ports = [portpicker.pick_unused_port() for _ in range(num_workers)]
+  ps_ports = [portpicker.pick_unused_port() for _ in range(num_ps)]
+
+  cluster_dict = {}
+  cluster_dict["worker"] = ["localhost:%s" % port for port in worker_ports]
+  if num_ps > 0:
+    cluster_dict["ps"] = ["localhost:%s" % port for port in ps_ports]
+
+  cluster_spec = tf.train.ClusterSpec(cluster_dict)
+  # Workers need some inter_ops threads to work properly.
+  worker_config = tf.compat.v1.ConfigProto()
+  if multiprocessing.cpu_count() < num_workers + 1:
+    worker_config.inter_op_parallelism_threads = num_workers + 1
+
+  for i in range(num_workers):
+    tf.distribute.Server(
+        cluster_spec,
+        job_name="worker",
+        task_index=i,
+        config=worker_config,
+        protocol="grpc")
+
+  for i in range(num_ps):
+    tf.distribute.Server(
+        cluster_spec,
+        job_name="ps",
+        task_index=i,
+        protocol="grpc")
+
+  cluster_resolver = tf.distribute.cluster_resolver.SimpleClusterResolver(
+      cluster_spec, rpc_layer="grpc")
+  return cluster_resolver
 
 class Agent:
     def __init__(
@@ -32,23 +69,41 @@ class Agent:
         self.target_ema_tau = target_ema_tau
         self.shrink_factor = shrink_factor
         
+        ##########################################
+        NUM_WORKERS = 2
+        NUM_PS = 2
+        cluster_resolver = create_in_process_cluster(NUM_WORKERS, NUM_PS)
         
-        self.online_model = BBFModel(input_shape=(*input_shape, stack_frames), 
-                          encoder_network=encoder_network,
-                          num_actions=n_actions, 
-                          hidden_dim=hidden_dim, 
-                          num_atoms=1,
-                          renormalize=renormalize
-                        )
+        variable_partitioner = (
+            tf.distribute.experimental.partitioners.MinSizePartitioner(
+                min_shard_bytes=(256 << 10),
+                max_shards=NUM_PS))
+
+        self.strategy = tf.distribute.ParameterServerStrategy(
+                cluster_resolver,
+                variable_partitioner=variable_partitioner)
+        
+        with self.strategy.scope():
+
+            self.online_model = BBFModel(input_shape=(*input_shape, stack_frames), 
+                            encoder_network=encoder_network,
+                            num_actions=n_actions, 
+                            hidden_dim=hidden_dim, 
+                            num_atoms=1,
+                            renormalize=renormalize
+                )
+            self.optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay)
     
-        self.target_model = BBFModel(input_shape=(*input_shape, stack_frames), 
+            self.target_model = BBFModel(input_shape=(*input_shape, stack_frames), 
                             encoder_network=encoder_network,
                             num_actions=n_actions, 
                             hidden_dim=hidden_dim, 
                             num_atoms=1,
                             renormalize=renormalize
                             )
-        self.target_model.trainable = False
+            self.target_model.trainable = False
+        
+        #################################################################
         
         fake_state = np.zeros((1, *input_shape, stack_frames))
         _ = self.online_model(fake_state, do_rollout=True, actions=np.random.randint(0,  n_actions, (1, spr_prediction_depth)))
@@ -63,7 +118,7 @@ class Agent:
         online_weights = self.online_model.get_weights()
         self.target_model.set_weights(online_weights)
         
-        self.optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay)
+        # self.optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay)
         self.huber_loss = tf.keras.losses.Huber()
         
         self.gamma_scheduler = exponential_decay_scheduler(10000, 0, start_gamma, end_gamma)

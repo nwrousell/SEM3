@@ -120,8 +120,8 @@ def train(agent: Agent, env, args):
         if num_episodes > args['min_episodes']:
             mean_reward = np.mean(episode_rewards[-(args['min_episodes']+1):-1])
         
-        # if num_grad_steps > 0:
-        #     print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
+        if num_grad_steps > 0:
+             print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
         
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
             print(f"Gradient steps: {num_grad_steps}. Environment steps: {t}")
