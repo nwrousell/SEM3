@@ -7,6 +7,7 @@ import yaml
 from agent import Agent
 from time import time
 import argparse
+from atari import Atari
 
 data_spec = [
     tf.TensorSpec(shape=(84,84), name="observation", dtype=np.float32),
@@ -120,8 +121,8 @@ def train(agent: Agent, env, args):
         if num_episodes > args['min_episodes']:
             mean_reward = np.mean(episode_rewards[-(args['min_episodes']+1):-1])
         
-        # if num_grad_steps > 0:
-        #     print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
+        if num_grad_steps > 0:
+            print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
         
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
             print(f"Gradient steps: {num_grad_steps}. Environment steps: {t}")
@@ -223,12 +224,14 @@ def main():
     
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
-    env = gym.make(config_args['game'], 
-                   render_mode="rgb_array", 
-                   obs_type='grayscale', 
-                   frameskip=config_args['frameskip'])
+    env = Atari("roms/assault.bin")
+    # env = gym.make(config_args['game'], 
+    #                render_mode="rgb_array", 
+    #                obs_type='grayscale', 
+    #                frameskip=config_args['frameskip'])
     
-    n_actions = env.action_space.n
+    # n_actions = env.action_space.n
+    n_actions = env.n_actions
     
     agent = Agent(config_args['stack_frames'], 
                   config_args['encoder_network'],
@@ -262,7 +265,7 @@ def main():
         evaluate(agent, play_env)
         play_env.close()
     
-    env.close()
+    # env.close()
     
 if __name__ == "__main__":
     print("\nDevices available: ", tf.config.list_physical_devices('GPU'))
