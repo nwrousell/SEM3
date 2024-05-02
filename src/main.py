@@ -63,7 +63,7 @@ def train(agent: Agent, env, args, strategy):
     
     episode_rewards = [0.0]
     max_mean_reward = None
-    num_grad_steps = 0
+    # num_grad_steps = 0
     prev_num_episodes_log = -1
     
     start_time = time()
@@ -74,14 +74,14 @@ def train(agent: Agent, env, args, strategy):
                                                       subseq_len=update_horizon)
         return batch
     
-    dataset = tf.data.Dataset.from_generator(
-        gen,
-        output_signature=data_spec,
-        args=(agent.update_horizon_scheduler, agent.gamma_scheduler)
-    )
+    # dataset = tf.data.Dataset.from_generator(
+    #     gen,
+    #     output_signature=data_spec,
+    #     args=(agent.update_horizon_scheduler, agent.gamma_scheduler)
+    # )
     
     
-    def distributed_train_step(dataset_inputs, update_horizon):
+    def distributed_train_step(update_horizon, dataset_inputs):
         per_replica_losses = strategy.run(lambda batch: agent.train_step(update_horizon, *batch), args=(dataset_inputs,))
         return strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses,
                                 axis=None)
@@ -118,33 +118,33 @@ def train(agent: Agent, env, args, strategy):
             episode_rewards.append(0.0)
         
         if t > args['initial_collect_steps']:
-            update_horizon = round(agent.update_horizon_scheduler(num_grad_steps))
-            gamma = agent.gamma_scheduler(num_grad_steps)
+            update_horizon = round(agent.update_horizon_scheduler())
+            gamma = agent.gamma_scheduler()
             
             for s in range(args['replay_ratio']):
-                num_grad_steps += 1
+                agent.num_grad_steps += 1
                 batch = replay_buffer.sample_transition_batch(update_horizon=update_horizon,
                                                       gamma=gamma, 
                                                       subseq_len=update_horizon)
                     
                 # loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
-                distributed_train_step(update_horizon, *batch)
+                loss, td_error, spr_error = distributed_train_step(update_horizon, batch)
                 
-                if num_grad_steps % args['target_update_frequency'] == 0:
+                if agent.num_grad_steps % args['target_update_frequency'] == 0:
                     agent.update_target()
                 
-                if num_grad_steps % args['reset_every'] == 0:
+                if agent.num_grad_steps % args['reset_every'] == 0:
                     agent.reset_weights()
         
         num_episodes = len(episode_rewards)
         if num_episodes > args['min_episodes']:
             mean_reward = np.mean(episode_rewards[-(args['min_episodes']+1):-1])
         
-        if num_grad_steps > 0:
-             print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
+        if agent.num_grad_steps > 0:
+             print(f"environment steps: {t}. grad updates: {agent.num_grad_steps}. num episodes: {num_episodes}")
         
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
-            print(f"Gradient steps: {num_grad_steps}. Environment steps: {t}")
+            print(f"Gradient steps: {agent.num_grad_steps}. Environment steps: {t}")
             if num_episodes != prev_num_episodes_log:
                 elapsed = time() - start_time
                 print(f"Finished episode #{num_episodes-1} with reward: {episode_rewards[-2]}")
@@ -250,12 +250,9 @@ def main():
                    frameskip=config_args['frameskip'])
     
     n_actions = env.action_space.n
-    
-    strategy = None
-    
-    if terminal_args.distributed:
-        strategy = tf.distribute.MirroredStrategy()
-        print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
+        
+    strategy = tf.distribute.MirroredStrategy()
+    print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
     
     agent = Agent(strategy,
                 config_args['stack_frames'], 
