@@ -16,7 +16,7 @@ class Atari:
     self.ale.setBool("display_screen", False)
     self.ale.setFloat('repeat_action_probability', 0.0)  # Disable sticky actions
     self.ale.setBool("sound", False)
-    self.record_sound_for_user = False
+    # self.record_sound_for_user = False
     # self.ale.setBool("record_sound_for_user", self.record_sound_for_user) 
 
 
