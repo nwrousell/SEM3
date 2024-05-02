@@ -1,7 +1,7 @@
 import os
 import numpy as np
-import ale_py
-from ale_py import ALEInterface
+import ale_python_interface as ale_py
+from ale_python_interface import ALEInterface
 import time
 import cv2
 
@@ -10,17 +10,17 @@ class Atari:
     self.ale = ALEInterface()
 
     # Set Settings
-    self.ale.setInt("random_seed", 123)
+    self.ale.setInt(b"random_seed", 123)
     self.frame_skip = frame_skip
-    self.ale.setInt("frame_skip", self.frame_skip)
-    self.ale.setBool("display_screen", False)
-    self.ale.setFloat('repeat_action_probability', 0.0)  # Disable sticky actions
-    self.ale.setBool("sound", False)
-    # self.record_sound_for_user = False
-    # self.ale.setBool("record_sound_for_user", self.record_sound_for_user) 
+    self.ale.setInt(b"frame_skip", self.frame_skip)
+    self.ale.setBool(b"display_screen", False)
+    self.ale.setFloat(b"repeat_action_probability", 0.0)  # Disable sticky actions
+    self.ale.setBool(b"sound", True)
+    self.record_sound_for_user = True
+    self.ale.setBool(b"record_sound_for_user", self.record_sound_for_user) 
 
 
-    self.ale.loadROM(rom_dir)
+    self.ale.loadROM(str.encode(rom_dir))
     self.screen_width, self.screen_height = self.ale.getScreenDims()
     self.legal_actions = self.ale.getLegalActionSet()
     self.n_actions = len(self.legal_actions)
@@ -30,7 +30,6 @@ class Atari:
   def get_observation(self):
     observation = np.zeros(self.screen_width*self.screen_height*3, dtype=np.uint8)
     observation = self.ale.getScreenGrayscale()
-    # observation = cv2.cvtColor(observation, cv2.COLOR_BGR2GRAY)
     return np.reshape(observation, (self.screen_height, self.screen_width, 1))
   
   def reset(self):
