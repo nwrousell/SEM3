@@ -110,7 +110,7 @@ def train(agent: Agent, env, args):
                     
                 loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
                 
-                print(f"grad step {num_grad_steps}. td_error: {td_error}. spr_error: {spr_error}")
+                # print(f"grad step {num_grad_steps}. td_error: {td_error}. spr_error: {spr_error}")
 
                 if num_grad_steps % args['target_update_frequency'] == 0:
                     agent.update_target()

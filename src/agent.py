@@ -70,7 +70,7 @@ class Agent:
         _ = self.online_model(fake_state, self.support, do_rollout=True, actions=np.random.randint(0,  n_actions, (1, spr_prediction_depth)))
         _ = self.target_model(fake_state, self.support, do_rollout=True, actions=np.random.randint(0, n_actions, (1, spr_prediction_depth)))
         
-        print(self.online_model.summary())
+        # print(self.online_model.summary())
         # print(self.online_model.head.summary())
         # print(bbf_online.encoder.summary())
         
@@ -92,9 +92,9 @@ class Agent:
             action = np.random.randint(0, self.n_actions)
         else:
             if self.target_action_selection:
-                q_values, _, _ = self.target_model(observation)
+                q_values = self.target_model(observation, self.support)[0]
             else:
-                q_values, _, _ = self.online_model(observation)
+                q_values = self.online_model(observation, self.support)[0]
             action = tf.argmax(q_values, axis=-1)
         
         return action
