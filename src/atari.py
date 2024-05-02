@@ -4,7 +4,6 @@ import ale_py
 from ale_py import ALEInterface
 import time
 import cv2
-import sys
 
 class Atari:
   def __init__(self, rom_dir, frame_skip=4):
@@ -16,7 +15,7 @@ class Atari:
     self.ale.setInt("frame_skip", self.frame_skip)
     self.ale.setBool("display_screen", False)
     self.ale.setFloat('repeat_action_probability', 0.0)  # Disable sticky actions
-    # self.ale.setBool("sound", True)
+    self.ale.setBool("sound", False)
     self.record_sound_for_user = False
     # self.ale.setBool("record_sound_for_user", self.record_sound_for_user) 
 
@@ -30,8 +29,8 @@ class Atari:
   
   def get_observation(self):
     observation = np.zeros(self.screen_width*self.screen_height*3, dtype=np.uint8)
-    observation = self.ale.getScreenRGB()
-    observation = cv2.cvtColor(observation, cv2.COLOR_BGR2GRAY)
+    observation = self.ale.getScreenGrayscale()
+    # observation = cv2.cvtColor(observation, cv2.COLOR_BGR2GRAY)
     return np.reshape(observation, (self.screen_height, self.screen_width, 1))
   
   def reset(self):
@@ -59,3 +58,4 @@ class Atari:
         self.ale.getScreenRGB(np_data_image)
         np_data_image = cv2.cvtColor(np_data_image, cv2.COLOR_BGR2GRAY)
         return np.reshape(np_data_image, (self.screen_height, self.screen_width))
+
