@@ -1,4 +1,4 @@
-import gymnasium as gym
+import gym
 from replay_buffer import ReplayBuffer
 import tensorflow as tf
 from image_pre import process_inputs
@@ -8,6 +8,7 @@ from agent import Agent
 from time import time
 import argparse
 from atari import Atari
+from atari import AtariMonitor
 
 data_spec = [
     tf.TensorSpec(shape=(84,84), name="observation", dtype=np.float32),
@@ -178,7 +179,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     
     while True:
         action = agent.choose_action(current_state, epsilon)
-        observation, reward, terminated, _, _ = env.step(action)
+        observation, reward, terminated, info = env.step(action)
         
         if args['process_inputs']:
             observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
@@ -256,12 +257,12 @@ def main():
         train(agent, env, config_args)
     
     if terminal_args.evaluate:
-        test_env = gym.wrappers.Monitor(env, config_args['video_dir']+'testing', force=True)
+        test_env = AtariMonitor(env, config_args['video_dir']+'testing')
         evaluate(agent, test_env, config_args)
         test_env.close()
     
     if terminal_args.play:
-        play_env = gym.wrappers.Monitor(env, config_args['video_dir']+'play', force=True)
+        play_env = AtariMonitor(env, config_args['video_dir']+'play')
         evaluate(agent, play_env)
         play_env.close()
     

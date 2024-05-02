@@ -59,3 +59,24 @@ class Atari:
         np_data_image = cv2.cvtColor(np_data_image, cv2.COLOR_BGR2GRAY)
         return np.reshape(np_data_image, (self.screen_height, self.screen_width))
 
+class AtariMonitor:
+    def __init__(self, env, video_dir='videos'):
+        self.env = env
+        self.video_dir = video_dir
+        video_path = f"{self.video_dir}.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        self.video_writer = cv2.VideoWriter(video_path, fourcc, 30.0, (self.env.screen_width, self.env.screen_height))
+
+    def record_frame(self):
+        frame = self.env.getScreenRGB()
+        self.video_writer.write(frame)
+
+    def reset(self):
+        observation, _ = self.env.reset()
+        self.video_writer.release()
+        return observation
+
+    def step(self, action):
+        observation, reward, terminated, _, _ = self.env.step(action)
+        self.record_frame()
+        return observation, reward, terminated
