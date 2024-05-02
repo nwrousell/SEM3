@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import ale_python_interface as ale_py
 from ale_python_interface import ALEInterface
 import time
 import cv2
