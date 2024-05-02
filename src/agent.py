@@ -109,7 +109,7 @@ class Agent:
             fake_state = np.zeros((1, *input_shape, stack_frames))
             _ = self.online_model(fake_state, do_rollout=True, actions=np.random.randint(0,  n_actions, (1, spr_prediction_depth)))
             _ = self.target_model(fake_state, do_rollout=True, actions=np.random.randint(0, n_actions, (1, spr_prediction_depth)))
-            self.huber_loss = tf.keras.losses.Huber()
+            self.huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)
             self.compute_spr_error = self.compute_spr_error
             self.compute_td_error = self.compute_td_error
             self.get_target_q_values = self.get_target_q_values
