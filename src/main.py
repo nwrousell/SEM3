@@ -225,7 +225,7 @@ def main():
     
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
-    env = Atari("roms/assault.bin")
+    env = Atari("roms/amidar.bin")
     # env = gym.make(config_args['game'], 
     #                render_mode="rgb_array", 
     #                obs_type='grayscale', 

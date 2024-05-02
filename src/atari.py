@@ -3,6 +3,12 @@ import numpy as np
 from ale_python_interface import ALEInterface
 import time
 import cv2
+import shutil
+import scipy.io.wavfile as wavfile
+import scipy.misc
+from python_speech_features import mfcc
+import matplotlib.pyplot as plt
+import subprocess as sp
 
 class Atari:
   def __init__(self, rom_dir, frame_skip=4):
@@ -29,6 +35,8 @@ class Atari:
   def get_observation(self):
     observation = np.zeros(self.screen_width*self.screen_height*3, dtype=np.uint8)
     observation = self.ale.getScreenGrayscale()
+    # audio = self.ale.getAudio()
+    # print(audio)
     return np.reshape(observation, (self.screen_height, self.screen_width, 1))
   
   def reset(self):
@@ -58,23 +66,96 @@ class Atari:
         return np.reshape(np_data_image, (self.screen_height, self.screen_width))
 
 class AtariMonitor:
+    # def __init__(self, env, video_dir='videos'):
+    #     self.env = env
+    #     self.video_dir = video_dir
+    #     video_path = f"{self.video_dir}.mp4"
+    #     fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    #     self.video_writer = cv2.VideoWriter(video_path, fourcc, 30.0, (self.env.screen_width, self.env.screen_height))
+
+    # def record_frame(self):
+    #     frame = self.env.getScreenRGB()
+    #     self.video_writer.write(frame)
+
+    # def reset(self):
+    #     observation, _ = self.env.reset()
+    #     self.video_writer.release()
+    #     return observation
+
+    # def step(self, action):
+    #     observation, reward, terminated, _, _ = self.env.step(action)
+    #     self.record_frame()
+    #     return observation, reward, terminated
+    
     def __init__(self, env, video_dir='videos'):
         self.env = env
         self.video_dir = video_dir
-        video_path = f"{self.video_dir}.mp4"
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        self.video_writer = cv2.VideoWriter(video_path, fourcc, 30.0, (self.env.screen_width, self.env.screen_height))
+        
+        self.save_dir_av = './logs_av_seq_Example' # Save png sequence and audio wav file here
+        self.save_dir_movies = './log_movies_Example'
+        self.save_image_prefix = 'image_frames'
+        self.save_audio_filename = 'audio_user_recorder.wav'
+        self.create_save_dir(self.save_dir_av)
+        
+        def create_save_dir(self, directory):
+        # Remove previous img/audio image logs
+          if os.path.exists(directory):
+            shutil.rmtree(directory)
+          os.makedirs(directory)
+        
 
-    def record_frame(self):
-        frame = self.env.getScreenRGB()
-        self.video_writer.write(frame)
+    def audio_to_mfcc(self, audio):
+      mfcc_data = mfcc(signal=audio, samplerate=self.audio_freq, winlen=0.002, winstep=0.0006)
+      mfcc_data = np.swapaxes(mfcc_data, 0 ,1) # Time on x-axis
 
-    def reset(self):
-        observation, _ = self.env.reset()
-        self.video_writer.release()
-        return observation
+      # Normalization 
+      min_data = np.min(mfcc_data.flatten())
+      max_data = np.max(mfcc_data.flatten())
+      mfcc_data = (mfcc_data-min_data)/(max_data-min_data)
+      
+      return mfcc_data
 
-    def step(self, action):
-        observation, reward, terminated, _, _ = self.env.step(action)
-        self.record_frame()
-        return observation, reward, terminated
+    def save_image(self, image):
+      number = str(self.action_count).zfill(6)
+      scipy.misc.imsave(os.path.join(self.save_dir_av, self.save_image_prefix+number+'.png'), image)
+
+    def save_audio(self, audio):
+      wavfile.write(os.path.join(self.save_dir_av, self.save_audio_filename), self.audio_freq, audio)
+
+    def save_movie(self, movie_name):
+      # Use ffmpeg to convert the saved img sequences and audio to mp4
+
+      # Video recording
+      command = [ "ffmpeg",
+                  '-y', # overwrite output file if it exists
+                  '-r', str(self.framerate), # frames per second
+                  '-i', os.path.join(self.save_dir_av, self.save_image_prefix+'%6d.png') # Video input comes from pngs
+                ]
+
+      # Audio if available
+      if self.record_sound_for_user:
+          command.extend(['-i', os.path.join(self.save_dir_av, self.save_audio_filename)]) # Audio input comes from wav
+
+      # Codecs and output
+      command.extend(['-c:v', 'libx264', # Video codec
+                  '-c:a', 'mp3', # Audio codec
+                  os.path.join(self.save_dir_movies, movie_name+'.mp4') # Output dir
+                    ])
+
+      # Make movie dir and write the mp4
+      if not os.path.exists(self.save_dir_movies):
+          os.makedirs(self.save_dir_movies)
+      sp.call(command) # NOTE: needs ffmpeg! Will throw 'dir doesn't exist err' otherwise.
+    
+    def concat_image_audio(self, image, audio_mfcc):
+      # Concatenates image and audio to test sync'ing in saved .mp4
+      audio_mfcc = scipy.misc.imresize(audio_mfcc, np.shape(image)) # Resize MFCC image to be same size as screen image
+      cmap = plt.get_cmap('viridis') # Apply a colormap to spectrogram
+      audio_mfcc = (np.delete(cmap(audio_mfcc), 3, 2)*255.).astype(np.uint8) # Gray MFCC -> 4 channel colormap -> 3 channel colormap
+      image = np.concatenate((image, audio_mfcc), axis=1) # Concat screen image and MFCC image
+      return image
+
+    def plot_mfcc(self, audio_mfcc):
+      plt.clf()
+      plt.imshow(audio_mfcc, interpolation='bilinear', cmap=plt.get_cmap('viridis'))
+      plt.pause(0.001)
