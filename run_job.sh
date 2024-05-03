@@ -11,7 +11,7 @@
 module purge
 unset LD_LIBRARY_PATH
 
-cd /users/nrousell/my_code/DL-final-project/src
+cd src
 
 export APPTAINER_BINDPATH="/oscar/home/$USER,/oscar/scratch/$USER,/oscar/data"
 export PYTHONUNBUFFERED=TRUE

@@ -94,8 +94,8 @@ def train(agent: Agent, env, args, run_name):
             episode_rewards.append(0.0)
         
         if t > args['initial_collect_steps']:
-            update_horizon = round(agent.update_horizon_scheduler(num_grad_steps))
-            gamma = agent.gamma_scheduler(num_grad_steps)
+            update_horizon = round(agent.update_horizon_scheduler(num_grad_steps % args['reset_every']))
+            gamma = agent.gamma_scheduler(num_grad_steps % args['reset_every'])
             
             for s in range(args['replay_ratio']):
                 num_grad_steps += 1
@@ -149,7 +149,8 @@ def evaluate(agent: Agent, env, args, run_name, restore=False, play=False):
     print("beginning evaluation")
     if restore:
         checkpoint = tf.train.Checkpoint(model=agent.online_model)
-        latest_snapshot= tf.train.latest_checkpoint(args['model_dir']+run_name)
+        # latest_snapshot= tf.train.latest_checkpoint(args['model_dir']+run_name)
+        latest_snapshot = tf.train.latest_checkpoint(args['model_dir'])
         if not latest_snapshot:
             raise Exception(f"No model snapshot found in {args['model_dir']+run_name}")
         
@@ -260,12 +261,12 @@ def main():
     
     if terminal_args.evaluate:
         test_env = gym.wrappers.Monitor(env, config_args['video_dir']+'testing')
-        evaluate(agent, test_env, config_args)
+        evaluate(agent, test_env, config_args, terminal_args.name)
         test_env.close()
     
     if terminal_args.play:
-        play_env = gym.wrappers.RecordVideo(env, config_args['video_dir']+'play', name_prefix=terminal_args.vname)
-        evaluate(agent, play_env, config_args, restore=True)
+        play_env = gym.wrappers.RecordVideo(env, config_args['video_dir']+'play', name_prefix=terminal_args.name)
+        evaluate(agent, play_env, config_args, terminal_args.name, restore=True)
         play_env.close()
     
     env.close()
