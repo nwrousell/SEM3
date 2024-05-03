@@ -270,22 +270,3 @@ def main():
 if __name__ == "__main__":
     print("\nDevices available: ", tf.config.list_physical_devices('GPU'))
     main()
-
-
-# Look at summary writer and checkpoint stuff (can we name runs?)
-# if needed, look into using 2 GPUs / some optimization (by some rough calculation it'll take ~100 hours for 100k frames and we only have 48...)
-#   would more cores or memory help?
-
-# figure out metrics/comparison with BBF / CASL
-
-# data augmentation
-# what to do to target network during reset?
-# renormalization
-
-# audio support for ALE
-# different architectures with audio + run experiments
-
-# add distributional DQN
-# add dueling DQN
-# add double DQN
-# maybe add prioritized replay buffer? (can probably mostly copy from BBF)
