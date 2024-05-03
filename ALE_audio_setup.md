@@ -1,0 +1,20 @@
+## Setup ALE with audio on Oscar
+
+1. Clone https://github.com/shayegano/Arcade-Learning-Environment
+2. In a separate directory, clone https://github.com/libsdl-org/SDL-1.2/tree/main
+3. In that SDL-1.2 directory, run `Run './configure  ; make; make install'`
+4. Back in the `Arcade-Learning-Environment` directory, open `CMakeLists.txt` in a text editor
+    - Around line 26, you'll see `if("SDL_FOUND" "AND" "SDL_VERSION_STRING"...)`, change that if statement to `if(SDL_FOUND AND SDL_VERSION_STRING VERSION_LESS 2.0.0)`
+    - Someplace before the "if(USE_SDL)" line add these three lines:
+    ```
+        set(SDL_ROOT_DIR "${HOME}")
+        set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};${HOME}/bin")
+        set(SDL_INCLUDE_DIR "${HOME}/include/SDL")
+    ```
+    - Save and close the file
+5. Open an interactive session if you haven't (`interact -n 1 -m 16g`) and run `mkdir build && cd build`
+6. `cmake -DUSE_SDL=ON -DUSE_RLGLUE=OFF -DBUILD_EXAMPLES=ON ..`
+7. `make -j 4`
+8. Assuming everything worked, navigate to the project directory (this directory)
+9. Enter into the container with `apptainer run --nv tensorflow-24.03-tf2-py3.simg`
+10. Navigate back to the `Arcade-Learning-Environment` directory and run `pip install --user .`
