@@ -1,7 +1,7 @@
 ## Setup ALE with audio on Oscar
 
 1. Clone https://github.com/shayegano/Arcade-Learning-Environment
-2. In a separate directory, clone https://github.com/libsdl-org/SDL-1.2/tree/main
+2. Then clone https://github.com/libsdl-org/SDL-1.2.git
 3. In that SDL-1.2 directory, run `Run './configure  ; make; make install'`
 4. Back in the `Arcade-Learning-Environment` directory, open `CMakeLists.txt` in a text editor
     - Around line 26, you'll see `if("SDL_FOUND" "AND" "SDL_VERSION_STRING"...)`, change that if statement to `if(SDL_FOUND AND SDL_VERSION_STRING VERSION_LESS 2.0.0)`
