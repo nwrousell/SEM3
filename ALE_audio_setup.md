@@ -11,7 +11,7 @@
     ```
         set(SDL_ROOT_DIR "/users/<cslogin>")
         set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/users/<cslogin>/bin")
-        set(SDL_INCLUDE_DIR "$/users/<cslogin>/include/SDL")
+        set(SDL_INCLUDE_DIR "/users/<cslogin>/include/SDL")
     ```
     - Save and close the file
 4.5. `cd /users/<cslogin> && mkdir bin` then navigate back to the `Arcade-Learning-Environment` directory
