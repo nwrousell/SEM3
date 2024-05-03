@@ -13,11 +13,11 @@ import imageio
 from skimage import transform
 
 class Atari:
-  def __init__(self, rom_dir, frame_skip=4):
+  def __init__(self, rom_dir, seed, frame_skip=4):
     self.ale = ALEInterface()
 
     # Set Settings
-    self.ale.setInt(b"random_seed", 123)
+    self.ale.setInt(b"random_seed", int(seed))
     self.frame_skip = frame_skip
     self.ale.setInt(b"frame_skip", self.frame_skip)
     self.ale.setBool(b"display_screen", False)
@@ -35,11 +35,11 @@ class Atari:
     self.reset()
   
   def get_observation(self):
-    observation = np.zeros(self.screen_width*self.screen_height*3, dtype=np.uint8)
-    observation = self.ale.getScreenGrayscale()
-    # audio = self.ale.getAudio()
+    video = np.zeros(self.screen_width*self.screen_height*3, dtype=np.uint8)
+    video = self.ale.getScreenGrayscale()
+    audio = self.ale.getAudio()
     # print(audio)
-    return np.reshape(observation, (self.screen_height, self.screen_width, 1))
+    return np.reshape(video, (self.screen_height, self.screen_width, 1)) , np.asarray(audio)
   
   def reset(self):
     self.ale.reset_game()
@@ -68,30 +68,9 @@ class Atari:
 
     return np.reshape(np_data_image, (self.screen_height, self.screen_width, 3)), np.asarray(np_data_audio)
 
-# class AtariMonitor:
-    # def __init__(self, env, video_dir='videos'):
-    #     self.env = env
-    #     self.video_dir = video_dir
-    #     video_path = f"{self.video_dir}.mp4"
-    #     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    #     self.video_writer = cv2.VideoWriter(video_path, fourcc, 30.0, (self.env.screen_width, self.env.screen_height))
-
-    # def record_frame(self):
-    #     frame = self.env.getScreenRGB()
-    #     self.video_writer.write(frame)
-
-    # def reset(self):
-    #     observation, _ = self.env.reset()
-    #     self.video_writer.release()
-    #     return observation
-
-    # def step(self, action):
-    #     observation, reward, terminated, _, _ = self.env.step(action)
-    #     self.record_frame()
-    #     return observation, reward, terminated
 
 class AtariMonitor:
-  def __init__(self, env, video_dir='../videos/'):
+  def __init__(self, env, video_dir, folder_name):
     self.env = env
     self.video_dir = video_dir
     self.framerate = 60 # Should read from ALE settings technically
@@ -102,15 +81,16 @@ class AtariMonitor:
     self.all_audio = np.zeros((0, ), dtype=np.uint8)
     
     
-    self.save_dir_av = video_dir + '/logs_av_seq' # Save png sequence and audio wav file here
-    self.save_dir_movies = video_dir + '/logs_movies'
+    self.save_dir_av = video_dir + folder_name + '/logs_av_seq' # Save png sequence and audio wav file here
+    self.save_dir_movies = video_dir + folder_name + '/logs_movies'
     self.save_image_prefix = 'im_frames_'
     self.save_audio_filename = 'audio.wav'
     self.create_save_dir(self.save_dir_av)
   
   def reset(self):
     self.save_audio(self.all_audio)
-    self.save_movie("run_" + str(time.time()))
+    self.save_movie("run_" + str(int(time.time())) + "_episode_" + str(self.episode_count))
+    self.episode_count += 1
     return self.env.reset()
 
   def step(self, action):
@@ -120,9 +100,6 @@ class AtariMonitor:
     self.all_audio = np.append(self.all_audio, audio)
     audio_mfcc = self.audio_to_mfcc(self.env.ale.getAudio())
     image = self.concat_image_audio(self.env.ale.getScreenRGB(), audio_mfcc)
-    # audio = self.env.ale.getAudio()
-    # image = self.env.ale.getScreenRGB()
-    # self.save_audio(audio)
     self.save_image(image)
     return observation, reward, terminated, None, None
   
