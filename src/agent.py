@@ -32,6 +32,7 @@ class Agent:
         seed=17,
         augment_spr=True,
         reset_target=True,
+        audio=False,
         ):
         
         self.spr_prediction_depth = spr_prediction_depth
@@ -52,6 +53,7 @@ class Agent:
         self.initializer = tf.initializers.GlorotUniform(seed=self.seed)
         self.augment_spr = augment_spr
         self.reset_target = reset_target
+        self.audio = audio
 
         self.online_model = BBFModel(input_shape=(*input_shape, stack_frames), 
                           encoder_network=encoder_network,
@@ -61,7 +63,8 @@ class Agent:
                           renormalize=renormalize,
                           dueling=self.dueling_dqn,
                           distributional=self.distributional_dqn,
-                          initializer=self.initializer
+                          initializer=self.initializer,
+                          audio=self.audio
                         )
     
         self.target_model = BBFModel(input_shape=(*input_shape, stack_frames), 
@@ -72,11 +75,14 @@ class Agent:
                             renormalize=renormalize,
                             dueling=self.dueling_dqn,
                             distributional=self.distributional_dqn,
-                            initializer=self.initializer
+                            initializer=self.initializer,
+                            audio=self.audio
                             )
         self.target_model.trainable = False
         
-        fake_state = np.zeros((1, *input_shape, stack_frames))
+        fake_video = np.zeros((1, *input_shape, stack_frames))
+        fake_audio = np.zeros((1, 512, stack_frames))
+        fake_state = (fake_video, fake_audio)
         _ = self.online_model(fake_state, self.support, do_rollout=True, actions=np.random.randint(0,  n_actions, (1, spr_prediction_depth)))
         _ = self.target_model(fake_state, self.support, do_rollout=True, actions=np.random.randint(0, n_actions, (1, spr_prediction_depth)))
         
@@ -94,9 +100,11 @@ class Agent:
         self.gamma_scheduler = exponential_decay_scheduler(10000, 0, start_gamma, end_gamma)
         self.update_horizon_scheduler = exponential_decay_scheduler(10000, 0, start_update_horizon, end_update_horizon)
     
-    def choose_action(self, observation, epsilon):
-        observation = observation[np.newaxis,:,:,:]
+    def choose_action(self, video, audio, epsilon):
+        video = video[np.newaxis,:,:,:]
         
+        observation = (video, audio)
+
         prob = np.random.random()
         if prob < epsilon:
             action = np.random.randint(0, self.n_actions)
@@ -131,7 +139,7 @@ class Agent:
         
         return spr_loss
 
-    def get_target_q_values(self, rewards, terminals, cumulative_gamma, next_states, update_horizon, probabilities=None):
+    def get_target_q_values(self, rewards, terminals, cumulative_gamma, next_video, next_audio, update_horizon, probabilities=None):
         # compute target q values or target distribution if using distributional DQN
         
         is_terminal_multiplier = 1.0 - terminals.astype(np.float32)
@@ -139,7 +147,7 @@ class Agent:
         # Incorporate terminal state into discount factor.
         gamma_with_terminal = cumulative_gamma * is_terminal_multiplier # (batch_size, update_horizon)
 
-        forecast_from = next_states[update_horizon-1]
+        forecast_from = (next_video[update_horizon-1], next_audio[update_horizon-1])
         future_qs_target, _, probabilities, _, _ = self.target_model(forecast_from, self.support)
         
         # if double, select action using online network
@@ -167,12 +175,14 @@ class Agent:
     
     def train_step(self, 
                    update_horizon,
-                   observations, # (batch_size, subseq_len, *obs_shape, stack_size)
+                   video, # (batch_size, subseq_len, *obs_shape, stack_size)
+                   audio, # (batch_size, subseq_len, 512, stack_size)
                    actions, # (batch_size, subseq_len)
                    rewards, # (batch_size, subseq_len)
                    returns, # (batch_size, subseq_len)
                    discounts, # (update_horizon)
-                   next_states, # (batch_size, subseq_len, *obs_shape, stack_size)
+                   next_video, # (batch_size, subseq_len, *obs_shape, stack_size)
+                   next_audio,
                    next_actions, # (batch_size, subseq_len)
                    next_rewards, # (batch_size, subseq_len)
                    terminals, # (batch_size, subseq_len)
@@ -180,19 +190,32 @@ class Agent:
                    indices):
         
         # swap batch and time dimensions
-        next_states = tf.transpose(next_states, perm=[1,0,2,3,4])
+        next_video = tf.transpose(next_video, perm=[1,0,2,3,4])
+        
+        next_audio = tf.transpose(next_audio, perm=[1,0,2,3])
                     
-        first_state = observations[:,0,:,:,:] # (84, 84, 4)
+        first_video = video[:,0,:,:,:] # (batch_size, 84, 84, 4)
+        first_audio = audio[:,0,:,:] # (batch_size, 512, 4)
+
+        first_state = (first_video, first_audio)
+
+        batch_size = 32
+        hidden_dim = 2048
                 
         with tf.GradientTape() as tape:
             q_values, logits, probabilities, spr_predictions, _ = self.online_model(first_state, self.support, do_rollout=True, actions=next_actions[:,:self.spr_prediction_depth])
             
             # compute targets
-            next_states_for_spr = next_states[:self.spr_prediction_depth]
+            next_video_for_spr = next_video[:self.spr_prediction_depth]
+            next_audio_for_spr = next_audio[:self.spr_prediction_depth]
             if self.augment_spr:
-                next_states_for_spr = drq_image_aug(next_states_for_spr)
-            spr_targets = tf.vectorized_map(lambda x: self.target_model.encode_project(x, True, False), next_states[:self.spr_prediction_depth])
-            q_targets = self.get_target_q_values(rewards, terminals, discounts, next_states, update_horizon)
+                next_video_for_spr = drq_image_aug(next_video_for_spr)
+            
+            next_states_for_spr =  (next_video_for_spr, next_audio_for_spr)
+
+            # spr_targets = tf.vectorized_map(lambda x: self.target_model.encode_project(x, True, False), next_states_for_spr)
+            spr_targets = tf.map_fn(lambda x: self.target_model.encode_project(x, True, False), elems=next_states_for_spr, fn_output_signature=tf.TensorSpec(shape=(batch_size, hidden_dim)))
+            q_targets = self.get_target_q_values(rewards, terminals, discounts, next_video, next_audio, update_horizon)
             
             # compute TD error and SPR loss
             td_error = self.compute_td_error(q_values, actions, q_targets, logits=logits)

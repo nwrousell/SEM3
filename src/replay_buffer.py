@@ -54,11 +54,13 @@ class ReplayBuffer:
         stack_size, 
         subseq_len, 
         observation_shape,
+        audio_shape,
         rng: np.random.default_rng,
         observation_dtype=np.uint8,
-        terminal_dtype=np.uint8,
+        terminal_dtype=np.float32,
         action_shape=(),
         action_dtype=np.int32,
+        audio_dtype=np.float32,
         reward_shape=(),
         reward_dtype=np.float32,
         use_next_state=True
@@ -75,6 +77,8 @@ class ReplayBuffer:
         self._terminal_dtype = terminal_dtype
         self._reward_shape = reward_shape
         self._observation_shape = observation_shape
+        self._audio_shape = audio_shape
+        self._audio_dtype = audio_dtype
         self._use_next_state = use_next_state
         self._state_shape = self._observation_shape + (self._stack_size,)
         
@@ -123,6 +127,7 @@ class ReplayBuffer:
     
     def add(self,
             observation,
+            audio,
             action,
             reward,
             terminal,
@@ -140,6 +145,7 @@ class ReplayBuffer:
 
         Args:
         observation: np.array with shape observation_shape.
+        audio: np.array with shape audio_shape.
         action: int, the action in the transition.
         reward: float, the reward received in the transition.
         terminal: np.dtype, acts as a boolean indicating whether the transition
@@ -157,7 +163,7 @@ class ReplayBuffer:
         self.total_steps += self._n_envs
 
         # self._check_add_types(observation, action, reward, terminal, *args)
-        self._check_args_length(observation, action, reward, terminal, *args)
+        self._check_args_length(observation, audio, action, reward, terminal, *args)
 
         resets = episode_end + terminal
         for i in range(resets.shape[0]):
@@ -166,7 +172,7 @@ class ReplayBuffer:
             else:
                 self._episode_end_indices.discard((self.cursor(), i))  # If present
 
-        self._add(observation, action, reward, terminal, *args)
+        self._add(observation, audio, action, reward, terminal, *args)
     
     def _add(self, *args):
         """Internal add method to add to the storage arrays.
@@ -454,12 +460,20 @@ class ReplayBuffer:
         outputs = []
         for element in transition_elements:
             name = element.name
-            if name == 'state':
+            if name == 'video':
                 output = self.parallel_get_stack(
                     'observation',
                     state_indices,
                     b_indices,
                     censor_before,
+                )
+                output = self.restore_leading_dims(batch_size, subseq_len, output)
+            elif name == "audio":
+                output = self.parallel_get_stack(
+                    'audio',
+                    state_indices,
+                    b_indices,
+                    censor_before
                 )
                 output = self.restore_leading_dims(batch_size, subseq_len, output)
             elif name == 'return':
@@ -471,12 +485,20 @@ class ReplayBuffer:
                 # output = cumulative_discount_vector[update_horizons + 1]
                 # output = self.restore_leading_dims(batch_size, subseq_len, output)
                 output = cumulative_discount_vector
-            elif name == 'next_state':
+            elif name == 'next_video':
                 output = self.parallel_get_stack(
                     'observation',
                     next_indices,
                     b_indices,
                     censor_before,
+                )
+                output = self.restore_leading_dims(batch_size, subseq_len, output)
+            elif name == 'next_audio':
+                output = self.parallel_get_stack(
+                    'audio',
+                    next_indices,
+                    b_indices,
+                    censor_before
                 )
                 output = self.restore_leading_dims(batch_size, subseq_len, output)
             elif name == 'same_trajectory':
@@ -524,7 +546,8 @@ class ReplayBuffer:
         batch_size = self._batch_size if batch_size is None else batch_size
 
         transition_elements = [
-            tf.TensorSpec(name='state', shape=(batch_size, subseq_len) + self._state_shape, dtype=self._observation_dtype),
+            tf.TensorSpec(name='video', shape=(batch_size, subseq_len) + self._state_shape, dtype=self._observation_dtype),
+            tf.TensorSpec(name="audio", shape=(batch_size, subseq_len) + self._audio_shape, dtype=self._audio_dtype),
             tf.TensorSpec(name='action', shape=(batch_size, subseq_len) + self._action_shape, dtype=self._action_dtype),
             tf.TensorSpec(name='reward', shape=(batch_size, subseq_len) + self._reward_shape, dtype=self._reward_dtype),
             tf.TensorSpec(name='return', shape=(batch_size, subseq_len) + self._reward_shape, dtype=self._reward_dtype),
@@ -532,7 +555,8 @@ class ReplayBuffer:
         ]
         if self._use_next_state:
             transition_elements += [
-                tf.TensorSpec(name='next_state', shape=(batch_size, subseq_len) + self._state_shape, dtype=self._observation_dtype),
+                tf.TensorSpec(name='next_video', shape=(batch_size, subseq_len) + self._state_shape, dtype=self._observation_dtype),
+                tf.TensorSpec(name='next_audio', shape=(batch_size, subseq_len) + self._audio_shape, dtype=self._audio_dtype),
                 tf.TensorSpec(name='next_action', shape=(batch_size, subseq_len) + self._action_shape, dtype=self._action_dtype),
                 tf.TensorSpec(name='next_reward', shape=(batch_size, subseq_len) + self._reward_shape, dtype=self._reward_dtype),
             ]
@@ -645,4 +669,7 @@ class ReplayBuffer:
 
 
 
-    
+# replay buffer is returning (320, 512, 4) for audio instead of (32, 10, 512, 4)
+# option to not use audio
+# also have to set up next_audio for replay_buffer
+# then in agent.py, re-configure everything (spr predictions, losses, etc.) to use audio as well (if enabled)

@@ -1,0 +1,80 @@
+
+Devices available:  []
+
+game: assault
+batch_size: 32
+subseq_len: 10
+target_ema_tau: 0.995
+epsilon: 0.05
+epsilon_decay_period: 2001
+epsilon_train: 0.0
+initial_collect_steps: 2000
+learning_rate: 0.0001
+weight_decay: 0.1
+frameskip: 4
+stack_frames: 4
+renormalize: False
+double_DQN: True
+distributional_DQN: True
+dueling_DQN: True
+target_update_frequency: 1
+target_action_selection: True
+audio: True
+hidden_dim: 2048
+num_atoms: 51
+vmax: 10
+spr_loss_weight: 5
+encoder_network: ImpalaWide
+reset_target: True
+spr_prediction_depth: 5
+start_gamma: 0.97
+end_gamma: 0.997
+start_update_horizon: 10
+end_update_horizon: 3
+replay_ratio: 2
+perturb_factor: 0.5
+clip_reward: True
+process_inputs: True
+shrink_factor: 0.5
+evaluation_epsilon: 0.001
+replay_capacity: 200000
+reset_every: 40000
+min_episodes: 5
+num_env_steps: 100000
+data_augmentation: True
+scale_type: linear
+summaries_dir: ../runs/summaries/
+model_dir: ../runs/models/
+video_dir: ../videos/
+eval_frequency: 5000
+train_log_frequency: 4
+print_frequency: 100
+evaluation_episodes: 5
+seed: 17
+Opened log file at ../runs/summaries/odjg/train_log.csv
+Opened log file at ../runs/summaries/odjg/eval_log.csv
+TERMINATED
+TERMINATED
+TERMINATED
+next audio (32, 10, 512, 4)
+(5, 32, 84, 84, 4) (5, 32, 512, 4)
+2
+post encode (32, 9, 9, 128)
+rep (32, 10368)
+proj (32, 2048)
+2
+post encode (32, 9, 9, 128)
+rep (32, 10368)
+proj (32, 2048)
+2
+post encode (32, 9, 9, 128)
+rep (32, 10368)
+proj (32, 2048)
+2
+post encode (32, 9, 9, 128)
+rep (32, 10368)
+proj (32, 2048)
+2
+post encode (32, 9, 9, 128)
+rep (32, 10368)
+proj (32, 2048)

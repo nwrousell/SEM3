@@ -45,20 +45,27 @@ def drq_image_aug(obs, img_pad=4):
     aug_obs = _intensity_aug(cropped_obs)
     return tf.reshape(aug_obs, obs.shape)
 
-def process_inputs(image, scale_type: str): 
+def process_inputs(obs, _: bool, scale_type: str): 
     crop_height, crop_width = 84, 84  # Desired crop size 
     # original_height, original_width = 210, 160  # Original image size 
 
+    image, audio = obs
+   
     image = image.astype(np.float32) / 255.0 
 
     # central_fraction = min(crop_height/original_height, crop_width/original_width) 
     if scale_type == 'linear': 
         # linearly scale it 
-        return cv2.resize(image, 
+        image = cv2.resize(image, 
                               (crop_height, crop_width), 
                               interpolation=cv2.INTER_LINEAR) 
     elif scale_type == 'crop': 
-        return central_crop(image, crop_height, crop_width)
+        image = central_crop(image, crop_height, crop_width)
+    
+    audio = audio.astype(np.float32) / 255.0
+    
+
+    return image, audio
 
     
         

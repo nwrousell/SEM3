@@ -12,6 +12,7 @@ from logger import Logger
 
 data_spec = [
     tf.TensorSpec(shape=(84,84), name="observation", dtype=np.float32),
+    tf.TensorSpec(shape=(512,), name="audio", dtype=np.float32),
     tf.TensorSpec(shape=(), name="action", dtype=np.int32),
     tf.TensorSpec(shape=(), name="reward", dtype=np.float32),
     tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
@@ -35,11 +36,14 @@ def train(agent: Agent, env, args, run_name):
                                  stack_size=args['stack_frames'],
                                  subseq_len=args['subseq_len'],
                                  observation_shape=(84,84),
+                                 audio_shape=(512,),
                                  rng=np.random.default_rng(seed=17)
                                 )
 
     observation, _ = env.reset()
-    
+
+    observation = (observation[0], np.zeros((512,)))
+
     episode_rewards = [0.0]
     max_mean_reward = None
     num_grad_steps = 0
@@ -52,28 +56,31 @@ def train(agent: Agent, env, args, run_name):
     start_time = time()
     
     if args['process_inputs']:
-        observation = process_inputs(observation, scale_type=args['scale_type'])
+        video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
 
-    current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+
+    current_video = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+    current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
     
     for t in range(args['num_env_steps']):
         epsilon = linearly_decaying_epsilon(args['epsilon_decay_period'], t, args['initial_collect_steps'], args['epsilon_train'])
         
-        action = agent.choose_action(current_state, epsilon)
+        action = agent.choose_action(current_video, current_audio, epsilon)
         observation, reward, terminated, _, _ = env.step(action)
         episode_length += 1
         
         if args['process_inputs']:
-            observation = process_inputs(observation, scale_type=args['scale_type'])
+            video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
         
-        current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+        current_video = np.concatenate([current_video[:,:,1:], video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+        current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
         
         episode_rewards[-1] += reward
         
         if args['clip_reward']:
             reward = np.clip(reward, -1, 1)
             
-        replay_buffer.add(observation, action, reward, np.array([int(terminated)]))
+        replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]))
         
         if terminated:
             print("TERMINATED")
@@ -90,8 +97,9 @@ def train(agent: Agent, env, args, run_name):
             observation, _ = env.reset()
             episode_length = 0
             if args['process_inputs']:
-                observation = process_inputs(observation, scale_type=args['scale_type'])
-            current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+                video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
+            current_video = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+            current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
             episode_rewards.append(0.0)
         
         if t > args['initial_collect_steps']:
@@ -103,7 +111,10 @@ def train(agent: Agent, env, args, run_name):
                 batch = replay_buffer.sample_transition_batch(update_horizon=update_horizon,
                                                       gamma=gamma, 
                                                       subseq_len=update_horizon)
-                    
+                
+                # for oop in batch:
+                #     print(oop.shape)
+
                 loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
                 
                 if num_grad_steps % args['target_update_frequency'] == 0:
@@ -164,19 +175,21 @@ def evaluate(agent: Agent, env, args, run_name, restore=False, play=False):
     eval_episode_lengths = [0]
     
     if args['process_inputs']:
-        observation = process_inputs(observation, scale_type=args['scale_type'])
+        video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
 
-    current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+    current_video = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+    current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
     epsilon = args['evaluation_epsilon']
     
     while True:
-        action = agent.choose_action(current_state, epsilon)
+        action = agent.choose_action(current_video, current_audio, epsilon)
         observation, reward, terminated, _, _ = env.step(action)
 
         if args['process_inputs']:
-            observation = process_inputs(observation, scale_type=args['scale_type'])
+            video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
             
-        current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+        current_video = np.concatenate([current_video[:,:,1:], video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+        current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
         
         eval_episode_rewards[-1] += reward
         eval_episode_lengths[-1] += 1
@@ -187,8 +200,9 @@ def evaluate(agent: Agent, env, args, run_name, restore=False, play=False):
             eval_mean_length = np.mean(eval_episode_lengths)
             observation, _ = env.reset()
             if args['process_inputs']:
-                observation = process_inputs(observation, scale_type=args['scale_type'])
-            current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], axis=-1)
+                video, audio = process_inputs(observation, args['audio'], scale_type=args['scale_type'])
+            current_video = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), video[:,:,np.newaxis]], axis=-1)
+            current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
             
             num_episodes = len(eval_episode_rewards)
             print(f"[Eval] Mean reward after {num_episodes} episodes is {round(eval_mean_reward, 2)}")
@@ -223,7 +237,7 @@ def main():
 
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
-    env = Atari("../roms/assault.bin", terminal_args.seed, config_args['frameskip'])
+    env = Atari(f"../roms/{config_args['game']}.bin", terminal_args.seed, config_args['frameskip'])
     # env = gym.make(config_args['game'], 
     #                render_mode="rgb_array", 
     #                obs_type='grayscale', 
@@ -256,7 +270,8 @@ def main():
                   config_args['num_atoms'],
                   terminal_args.seed,
                   config_args['data_augmentation'],
-                  config_args['reset_target']
+                  config_args['reset_target'],
+                  config_args['audio']
                   )
     
     if terminal_args.train:
