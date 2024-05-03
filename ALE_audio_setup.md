@@ -1,6 +1,6 @@
 ## Setup ALE with audio on Oscar
 
-1. Clone https://github.com/shayegano/Arcade-Learning-Environment
+1. Clone https://github.com/shayegano/Arcade-Learning-Environment and checkout the `audio_support` branch
 2. Then clone https://github.com/libsdl-org/SDL-1.2.git
 3. In that SDL-1.2 directory, run `Run './configure --prefix=/users/<cslogin> --libdir=/users/<cslogin>/bin/lib64; make; make install'`
 4. Back in the `Arcade-Learning-Environment` directory, open `CMakeLists.txt` in a text editor
