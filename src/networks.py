@@ -179,7 +179,7 @@ def AudioEncoder(encoder, initializer):
 
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L697
 class BBFModel(tf.keras.Model):
-    def __init__(self, input_shape, encoder_network, num_actions, hidden_dim, num_atoms, width_scale=4, audio=False, renormalize=False, dueling=True, distributional=True, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
+    def __init__(self, input_shape, encoder_network, num_actions, hidden_dim, num_atoms, width_scale=4, scale=True, audio=False, renormalize=False, dueling=True, distributional=True, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
         super().__init__()
         self.renormalize = renormalize
         self.dueling = dueling

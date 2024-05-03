@@ -33,6 +33,7 @@ class Agent:
         augment_spr=True,
         reset_target=True,
         audio=False,
+        scale=True,
         ):
         
         self.spr_prediction_depth = spr_prediction_depth
@@ -54,6 +55,7 @@ class Agent:
         self.augment_spr = augment_spr
         self.reset_target = reset_target
         self.audio = audio
+        self.downscale = scale
 
         self.online_model = BBFModel(input_shape=(*input_shape, stack_frames), 
                           encoder_network=encoder_network,
@@ -64,7 +66,8 @@ class Agent:
                           dueling=self.dueling_dqn,
                           distributional=self.distributional_dqn,
                           initializer=self.initializer,
-                          audio=self.audio
+                          audio=self.audio,
+                          scale=self.downscale,
                         )
     
         self.target_model = BBFModel(input_shape=(*input_shape, stack_frames), 
@@ -76,7 +79,8 @@ class Agent:
                             dueling=self.dueling_dqn,
                             distributional=self.distributional_dqn,
                             initializer=self.initializer,
-                            audio=self.audio
+                            audio=self.audio,
+                            scale=self.downscale,
                             )
         self.target_model.trainable = False
         

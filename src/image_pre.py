@@ -51,7 +51,7 @@ def process_inputs(obs, _: bool, scale_type: str):
 
     image, audio = obs
    
-    image = image.astype(np.float32) / 255.0 
+    image = np.squeeze(image.astype(np.float32) / 255.0)
 
     # central_fraction = min(crop_height/original_height, crop_width/original_width) 
     if scale_type == 'linear': 

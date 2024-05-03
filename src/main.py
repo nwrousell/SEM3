@@ -10,18 +10,10 @@ from atari import Atari
 from atari import AtariMonitor
 from logger import Logger
 
-data_spec = [
-    tf.TensorSpec(shape=(84,84), name="observation", dtype=np.float32),
-    tf.TensorSpec(shape=(512,), name="audio", dtype=np.float32),
-    tf.TensorSpec(shape=(), name="action", dtype=np.int32),
-    tf.TensorSpec(shape=(), name="reward", dtype=np.float32),
-    tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
-]
-
 train_log_fields = ['environment_step', 'gradient_step', 'spr_loss', 'td_error', 'num_episodes', 'episode_reward', 'episode_length']
 eval_log_fields = ['environment_step', 'gradient_step', 'num_train_episodes', 'mean_episode_reward', 'mean_episode_length']
     
-def train(agent: Agent, env, args, run_name):
+def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
     train_logger = Logger(args['summaries_dir']+run_name+"/", "train_log.csv", train_log_fields)
     eval_logger = Logger(args['summaries_dir']+run_name+"/", "eval_log.csv", eval_log_fields)
     checkpoint = tf.train.Checkpoint(step=tf.Variable(0), optimizer=agent.optimizer, model=agent.online_model)
@@ -35,7 +27,7 @@ def train(agent: Agent, env, args, run_name):
                                  n_envs=1, 
                                  stack_size=args['stack_frames'],
                                  subseq_len=args['subseq_len'],
-                                 observation_shape=(84,84),
+                                 observation_shape=vid_shape,
                                  audio_shape=(512,),
                                  rng=np.random.default_rng(seed=17)
                                 )
@@ -58,8 +50,7 @@ def train(agent: Agent, env, args, run_name):
     if args['process_inputs']:
         video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
 
-
-    current_video = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+    current_video = np.concatenate([np.zeros((*vid_shape,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
     
     for t in range(args['num_env_steps']):
@@ -98,7 +89,7 @@ def train(agent: Agent, env, args, run_name):
             episode_length = 0
             if args['process_inputs']:
                 video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
-            current_video = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+            current_video = np.concatenate([np.zeros((*vid_shape,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
             current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
             episode_rewards.append(0.0)
         
@@ -111,9 +102,6 @@ def train(agent: Agent, env, args, run_name):
                 batch = replay_buffer.sample_transition_batch(update_horizon=update_horizon,
                                                       gamma=gamma, 
                                                       subseq_len=update_horizon)
-                
-                # for oop in batch:
-                #     print(oop.shape)
 
                 loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
                 
@@ -146,7 +134,7 @@ def train(agent: Agent, env, args, run_name):
             checkpoint.step.assign_add(1)
             save_path = manager.save()
             print("saved current model")
-            eval_mean_reward, eval_mean_length = evaluate(agent, env, args, run_name)
+            eval_mean_reward, eval_mean_length = evaluate(agent, env, args, run_name, vid_shape)
             print(f"Evaluation reward at {t} step is {eval_mean_reward}")
             log_data = {
                 'environment_step': s,
@@ -157,7 +145,7 @@ def train(agent: Agent, env, args, run_name):
             }
             eval_logger.log(log_data)
    
-def evaluate(agent: Agent, env, args, run_name, restore=False, play=False):
+def evaluate(agent: Agent, env, args, run_name, vid_shape, restore=False, play=False):
     print("beginning evaluation")
     if restore:
         checkpoint = tf.train.Checkpoint(model=agent.online_model)
@@ -177,7 +165,7 @@ def evaluate(agent: Agent, env, args, run_name, restore=False, play=False):
     if args['process_inputs']:
         video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
 
-    current_video = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+    current_video = np.concatenate([np.zeros((*vid_shape,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
     epsilon = args['evaluation_epsilon']
     
@@ -201,7 +189,7 @@ def evaluate(agent: Agent, env, args, run_name, restore=False, play=False):
             observation, _ = env.reset()
             if args['process_inputs']:
                 video, audio = process_inputs(observation, args['audio'], scale_type=args['scale_type'])
-            current_video = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), video[:,:,np.newaxis]], axis=-1)
+            current_video = np.concatenate([np.zeros((*vid_shape,args['stack_frames']-1)), video[:,:,np.newaxis]], axis=-1)
             current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
             
             num_episodes = len(eval_episode_rewards)
@@ -238,14 +226,18 @@ def main():
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
     env = Atari(f"../roms/{config_args['game']}.bin", terminal_args.seed, config_args['frameskip'])
-    # env = gym.make(config_args['game'], 
-    #                render_mode="rgb_array", 
-    #                obs_type='grayscale', 
-    #                frameskip=config_args['frameskip'])
-    
-    # n_actions = env.action_space.n
+
     n_actions = env.n_actions
-    
+    vid_shape = (84,84) if config_args['scale_type'] != 'none' else (210, 160)
+
+    data_spec = [
+        tf.TensorSpec(shape=vid_shape, name="observation", dtype=np.float32),
+        tf.TensorSpec(shape=(512,), name="audio", dtype=np.float32),
+        tf.TensorSpec(shape=(), name="action", dtype=np.int32),
+        tf.TensorSpec(shape=(), name="reward", dtype=np.float32),
+        tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
+    ]
+
     agent = Agent(config_args['stack_frames'], 
                   config_args['encoder_network'],
                   n_actions,
@@ -261,7 +253,7 @@ def main():
                   config_args['target_ema_tau'],
                   config_args['shrink_factor'],
                   config_args['spr_prediction_depth'],
-                  (84, 84),
+                  vid_shape,
                   config_args['renormalize'], # ! not implemented
                   config_args['double_DQN'],
                   config_args['distributional_DQN'],
@@ -271,20 +263,21 @@ def main():
                   terminal_args.seed,
                   config_args['data_augmentation'],
                   config_args['reset_target'],
-                  config_args['audio']
+                  config_args['audio'],
+                  config_args['scale_type']!='none',
                   )
     
     if terminal_args.train:
-        train(agent, env, config_args, terminal_args.name)
+        train(agent, env, config_args, terminal_args.name, data_spec, vid_shape)
     
     if terminal_args.evaluate:
         test_env = AtariMonitor(env, config_args['video_dir'], terminal_args.name)
-        evaluate(agent, test_env, config_args, terminal_args.name)
+        evaluate(agent, test_env, config_args, terminal_args.name, vid_shape)
         # test_env.close()
     
     if terminal_args.play:
         play_env = AtariMonitor(env, config_args['video_dir'], terminal_args.name)
-        evaluate(agent, play_env, config_args, terminal_args.name)
+        evaluate(agent, play_env, config_args, terminal_args.name, vid_shape)
         # play_env.close()
     
     # env.close()
