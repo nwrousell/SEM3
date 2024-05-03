@@ -223,7 +223,7 @@ def main():
 
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
-    env = Atari("../roms/assault.bin")
+    env = Atari("../roms/assault.bin", terminal_args.seed, config_args['frameskip'])
     # env = gym.make(config_args['game'], 
     #                render_mode="rgb_array", 
     #                obs_type='grayscale', 
@@ -263,13 +263,13 @@ def main():
         train(agent, env, config_args, terminal_args.name)
     
     if terminal_args.evaluate:
-        test_env = AtariMonitor(env, config_args['video_dir']+'testing')
-        evaluate(agent, test_env, config_args)
+        test_env = AtariMonitor(env, config_args['video_dir'], terminal_args.name)
+        evaluate(agent, test_env, config_args, terminal_args.name)
         # test_env.close()
     
     if terminal_args.play:
-        play_env = AtariMonitor(env, config_args['video_dir']+'play')
-        evaluate(agent, play_env)
+        play_env = AtariMonitor(env, config_args['video_dir'], terminal_args.name)
+        evaluate(agent, play_env, config_args, terminal_args.name)
         # play_env.close()
     
     # env.close()
