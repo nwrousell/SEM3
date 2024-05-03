@@ -9,7 +9,7 @@
     ```
         set(SDL_ROOT_DIR "/users/<cslogin>")
         set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/users/<cslogin>/bin")
-        set(SDL_INCLUDE_DIR "$/users/<cslogin>/bin/include/SDL")
+        set(SDL_INCLUDE_DIR "$/users/<cslogin>/include/SDL")
     ```
     - Save and close the file
 5. Open an interactive session if you haven't (`interact -n 1 -m 16g`) and run `mkdir build && cd build`
