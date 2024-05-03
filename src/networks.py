@@ -109,17 +109,20 @@ class LinearHead(Layer):
                 self.num_actions * self.num_atoms,
                 dtype=dtype,
                 kernel_initializer=self.initializer,
+                bias_initializer=self.initializer
             )
             self.value = Dense(
                 self.num_atoms,
                 dtype=dtype,
                 kernel_initializer=self.initializer,
+                bias_initializer=self.initializer
             )
         else:
             self.advantage = Dense(
                 self.num_actions * self.num_atoms,
                 dtype=dtype,
                 kernel_initializer=self.initializer,
+                bias_initializer=self.initializer
             )
 
     def __call__(self, x):
@@ -165,7 +168,7 @@ class BBFModel(tf.keras.Model):
         
         if encoder_network == 'ImpalaWide':
             encoder_dims = (16,32,32) # before scaling!
-            self.encoder = ScaledImpalaCNN(input_shape, dims=encoder_dims, width_scale=self.width_scale)
+            self.encoder = ScaledImpalaCNN(input_shape, dims=encoder_dims, width_scale=self.width_scale, initializer=initializer)
             latent_dim = encoder_dims[-1] * self.width_scale
         else:
             latent_dim = 64
@@ -180,9 +183,9 @@ class BBFModel(tf.keras.Model):
             Conv2D(filters=latent_dim, kernel_size=3, strides=1, kernel_initializer=initializer, padding="SAME", activation="relu")
         ], name="transition")
         
-        self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, dtype=dtype, name="projection")
+        self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, bias_initializer=initializer, name="projection")
         
-        self.predictor = Dense(units=self.hidden_dim, kernel_initializer=initializer, name="predictor")
+        self.predictor = Dense(units=self.hidden_dim, kernel_initializer=initializer, bias_initializer=initializer, name="predictor")
     
     def encode(self, x, has_batch=False, is_rollout=False):
         latent = self.encoder(x)

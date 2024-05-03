@@ -68,7 +68,7 @@ def train(agent: Agent, env, args):
     start_time = time()
     
     if args['process_inputs']:
-        observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
+        observation = process_inputs(observation, scale_type=args['scale_type'])
 
     current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     
@@ -79,7 +79,7 @@ def train(agent: Agent, env, args):
         observation, reward, terminated, _, _ = env.step(action)
         
         if args['process_inputs']:
-            observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
+            observation = process_inputs(observation, scale_type=args['scale_type'])
         
         current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
         
@@ -94,7 +94,7 @@ def train(agent: Agent, env, args):
             print("TERMINATED")
             observation, _ = env.reset()
             if args['process_inputs']:
-                observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
+                observation = process_inputs(observation, scale_type=args['scale_type'])
             current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
             episode_rewards.append(0.0)
         
@@ -174,7 +174,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     eval_episode_rewards = [0.0]
     
     if args['process_inputs']:
-        observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
+        observation = process_inputs(observation, scale_type=args['scale_type'])
 
     current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     epsilon = args['evaluation_epsilon']
@@ -186,7 +186,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
         # print("reward:", reward, action)
 
         if args['process_inputs']:
-            observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
+            observation = process_inputs(observation, scale_type=args['scale_type'])
             
         current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
         
@@ -197,7 +197,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
             eval_mean_reward = np.mean(eval_episode_rewards)
             observation, _ = env.reset()
             if args['process_inputs']:
-                observation = process_inputs(observation, scale_type=args['scale_type'], augmentation=False)
+                observation = process_inputs(observation, scale_type=args['scale_type'])
             current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], axis=-1)
             
             num_episodes = len(eval_episode_rewards)
@@ -223,10 +223,13 @@ def main():
     parser.add_argument('--evaluate', help='evaluate trained policy of an agent', action='store_true')
     parser.add_argument('--play', help='let trained agent play', action='store_true')
     parser.add_argument('--vname', help="name prefix for video files")
+    parser.add_argument("--seed", help="seed to initialize RNGs")
     # parser.add_argument('--env', nargs=1, help='Atari 2600 game used as environment', type=str)
     
     terminal_args = parser.parse_args()
     
+    print("seed:", terminal_args.seed)
+
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
     env = gym.make(config_args['game'], 
@@ -257,7 +260,10 @@ def main():
                   config_args['distributional_DQN'],
                   config_args['dueling_DQN'],
                   config_args['vmax'],
-                  config_args['num_atoms']
+                  config_args['num_atoms'],
+                  terminal_args.seed,
+                  config_args['data_augmentation'],
+                  config_args['reset_target']
                   )
     
     if terminal_args.train:

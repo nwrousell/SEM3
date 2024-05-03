@@ -1,6 +1,8 @@
 from networks import BBFModel
 import numpy as np
 import tensorflow as tf
+from image_pre import drq_image_aug
+
 
 class Agent:
     def __init__(
@@ -27,6 +29,9 @@ class Agent:
         dueling_DQN=True,
         vmax=10,
         num_atoms=51,
+        seed=17,
+        augment_spr=True,
+        reset_target=True,
         ):
         
         self.spr_prediction_depth = spr_prediction_depth
@@ -43,8 +48,11 @@ class Agent:
         self.vmin = -vmax
         self.num_atoms = num_atoms
         self.support = tf.cast(tf.linspace(self.vmin, vmax, num_atoms), dtype=np.float32)
-        
-        
+        self.seed = int(seed)
+        self.initializer = tf.initializers.GlorotUniform(seed=self.seed)
+        self.augment_spr = augment_spr
+        self.reset_target = reset_target
+
         self.online_model = BBFModel(input_shape=(*input_shape, stack_frames), 
                           encoder_network=encoder_network,
                           num_actions=n_actions, 
@@ -52,7 +60,8 @@ class Agent:
                           num_atoms=self.num_atoms,
                           renormalize=renormalize,
                           dueling=self.dueling_dqn,
-                          distributional=self.distributional_dqn
+                          distributional=self.distributional_dqn,
+                          initializer=self.initializer
                         )
     
         self.target_model = BBFModel(input_shape=(*input_shape, stack_frames), 
@@ -62,7 +71,8 @@ class Agent:
                             num_atoms=self.num_atoms,
                             renormalize=renormalize,
                             dueling=self.dueling_dqn,
-                            distributional=self.distributional_dqn
+                            distributional=self.distributional_dqn,
+                            initializer=self.initializer
                             )
         self.target_model.trainable = False
         
@@ -178,6 +188,9 @@ class Agent:
             q_values, logits, probabilities, spr_predictions, _ = self.online_model(first_state, self.support, do_rollout=True, actions=next_actions[:,:self.spr_prediction_depth])
             
             # compute targets
+            next_states_for_spr = next_states[:self.spr_prediction_depth]
+            if self.augment_spr:
+                next_states_for_spr = drq_image_aug(next_states_for_spr)
             spr_targets = tf.vectorized_map(lambda x: self.target_model.encode_project(x, True, False), next_states[:self.spr_prediction_depth])
             q_targets = self.get_target_q_values(rewards, terminals, discounts, next_states, update_horizon)
             
@@ -202,9 +215,13 @@ class Agent:
         set_weights(self.target_model, new_target_weights)
     
     def reset_weights(self):
-        new_weights = weights_reset(get_weight_dict(self.online_model), self.shrink_factor)
-        set_weights(self.online_model, new_weights)
-        # ! do something here for target model?
+        new_online_weights = weights_reset(get_weight_dict(self.online_model), self.shrink_factor)
+        set_weights(self.online_model, new_online_weights)
+        
+        if self.reset_target:
+            new_target_weights = weights_reset(get_weight_dict(self.target_model), self.shrink_factor)
+            set_weights(self.target_model, new_target_weights)
+
     
     def layers_summary(self, step):
         for layer in self.online_model.layers:

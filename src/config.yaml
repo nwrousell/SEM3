@@ -26,6 +26,7 @@ spr_loss_weight: 5 # relative to RL loss
 
 encoder_network: "ImpalaWide" # 'DQN' (3-layer CNN) or 'ImpalaWide' (15-layer ResNet)
 
+reset_target: True
 spr_prediction_depth: 5
 start_gamma: 0.97
 end_gamma: 0.997
@@ -45,7 +46,7 @@ min_episodes: 5
 num_env_steps: 100_000 # Atari 100k
 
 ## Pre-processing
-data_augmentation: False
+data_augmentation: True
 scale_type: 'linear' # 'linear' or 'crop' or 'none'
 
 summaries_dir: '../runs/summaries/'
