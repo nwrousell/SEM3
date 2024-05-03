@@ -179,7 +179,7 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     
     while True:
         action = agent.choose_action(current_state, epsilon)
-        observation, reward, terminated, info = env.step(action)
+        observation, reward, terminated, _, _ = env.step(action)
         
         if args['process_inputs']:
             observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
@@ -259,12 +259,12 @@ def main():
     if terminal_args.evaluate:
         test_env = AtariMonitor(env, config_args['video_dir']+'testing')
         evaluate(agent, test_env, config_args)
-        test_env.close()
+        # test_env.close()
     
     if terminal_args.play:
         play_env = AtariMonitor(env, config_args['video_dir']+'play')
         evaluate(agent, play_env)
-        play_env.close()
+        # play_env.close()
     
     # env.close()
     
