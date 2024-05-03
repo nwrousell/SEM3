@@ -7,9 +7,9 @@
     - Around line 26, you'll see `if("SDL_FOUND" "AND" "SDL_VERSION_STRING"...)`, change that if statement to `if(SDL_FOUND AND SDL_VERSION_STRING VERSION_LESS 2.0.0)`
     - Someplace before the "if(USE_SDL)" line add these three lines:
     ```
-        set(SDL_ROOT_DIR "${HOME}")
-        set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};${HOME}/bin")
-        set(SDL_INCLUDE_DIR "${HOME}/include/SDL")
+        set(SDL_ROOT_DIR "/users/<cslogin>")
+        set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/users/<cslogin>/bin")
+        set(SDL_INCLUDE_DIR "$/users/<cslogin>/bin/include/SDL")
     ```
     - Save and close the file
 5. Open an interactive session if you haven't (`interact -n 1 -m 16g`) and run `mkdir build && cd build`
