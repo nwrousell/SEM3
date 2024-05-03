@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, MaxPool2D, BatchNormalization, ReLU, LayerNormalization, Input, Dropout, Dense, Lambda, Layer
+from tensorflow.keras.layers import Conv2D, Conv1D, MaxPooling1D, MaxPool2D, BatchNormalization, ReLU, LayerNormalization, Input, Dropout, Dense, Lambda, Layer
 import numpy as np
 
 # it does not work -> using this goes to NAN
@@ -154,9 +154,23 @@ class LinearHead(Layer):
     def get_config(self):
         return {"dueling": self.dueling, "num_actions": self.num_actions, "num_atoms": self.num_atoms}
         
+
+def AudioEncoder(input_shape, dims, initializer):
+    model = tf.keras.Sequential([
+        Conv1D(filters=8, kernel_size=3, kernel_initializer=initializer, activation='relu', input_shape=input_shape),
+        MaxPooling1D(pool_size=2),
+        Conv1D(filters=16, kernel_size=3, kernel_initializer=initializer, activation='relu'),
+        MaxPooling1D(pool_size=2),
+        Conv1D(filters=16, kernel_size=3, kernel_initializer=initializer, activation='relu'),
+        MaxPooling1D(pool_size=2),
+        Dense(units=(162, num_audio_channels), kernel_initializer=initializer, bias_initializer=initializer, activation='relu')
+        
+    ])
+    return model
+
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L697
 class BBFModel(tf.keras.Model):
-    def __init__(self, input_shape, encoder_network, num_actions, hidden_dim, num_atoms, width_scale=4, renormalize=False, dueling=True, distributional=True, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
+    def __init__(self, input_shape, encoder_network, num_actions, hidden_dim, num_atoms, width_scale=4, audio=False, renormalize=False, dueling=True, distributional=True, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
         super().__init__()
         self.renormalize = renormalize
         self.dueling = dueling
@@ -165,6 +179,7 @@ class BBFModel(tf.keras.Model):
         self.num_atoms = num_atoms
         self.width_scale = width_scale
         self.num_actions = num_actions
+        self.audio = audio
         
         if encoder_network == 'ImpalaWide':
             encoder_dims = (16,32,32) # before scaling!
@@ -174,6 +189,9 @@ class BBFModel(tf.keras.Model):
             latent_dim = 64
             self.encoder = DQN_CNN(input_shape)
         
+        if self.audio:
+            self.audio_encoder = AudioEncoder()
+
         # head used to predict Q values
         self.head = LinearHead(dueling=dueling, num_actions=num_actions, num_atoms=num_atoms, dtype=dtype, initializer=initializer)
         
@@ -187,13 +205,16 @@ class BBFModel(tf.keras.Model):
         
         self.predictor = Dense(units=self.hidden_dim, kernel_initializer=initializer, bias_initializer=initializer, name="predictor")
     
-    def encode(self, x, has_batch=False, is_rollout=False):
+    def encode(self, x, has_batch=False, is_rollout=False, audio=None):
         latent = self.encoder(x)
         if self.renormalize:
             latent = renormalize(latent)
+        if audio != None:
+            audio_latent = AudioEncoder(audio)
+            latent = tf.concat([latent, audio_latent], axis=-1)
         return latent
 
-    def encode_project(self, x, has_batch=False, is_rollout=False):
+    def encode_project(self, x, has_batch=False, is_rollout=False, audio=None):
         latent = self.encode(x, has_batch, is_rollout)
         representation = self.flatten_spatial_latent(latent, has_batch, is_rollout)
         return self.project(representation)
