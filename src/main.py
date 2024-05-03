@@ -1,4 +1,3 @@
-import gym
 from replay_buffer import ReplayBuffer
 import tensorflow as tf
 from image_pre import process_inputs
@@ -225,7 +224,7 @@ def main():
     
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
-    env = Atari("roms/amidar.bin")
+    env = Atari("../roms/assault.bin")
     # env = gym.make(config_args['game'], 
     #                render_mode="rgb_array", 
     #                obs_type='grayscale', 
