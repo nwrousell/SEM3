@@ -134,7 +134,7 @@ def train(agent: Agent, env, args, run_name):
             checkpoint.step.assign_add(1)
             save_path = manager.save()
             print("saved current model")
-            eval_mean_reward, eval_mean_length = evaluate(agent, env, args)
+            eval_mean_reward, eval_mean_length = evaluate(agent, env, args, run_name)
             print(f"Evaluation reward at {t} step is {eval_mean_reward}")
             log_data = {
                 'environment_step': s,
@@ -149,8 +149,8 @@ def evaluate(agent: Agent, env, args, run_name, restore=False, play=False):
     print("beginning evaluation")
     if restore:
         checkpoint = tf.train.Checkpoint(model=agent.online_model)
-        # latest_snapshot= tf.train.latest_checkpoint(args['model_dir']+run_name)
-        latest_snapshot = tf.train.latest_checkpoint(args['model_dir'])
+        latest_snapshot= tf.train.latest_checkpoint(args['model_dir']+run_name)
+        # latest_snapshot = tf.train.latest_checkpoint(args['model_dir'])
         if not latest_snapshot:
             raise Exception(f"No model snapshot found in {args['model_dir']+run_name}")
         
