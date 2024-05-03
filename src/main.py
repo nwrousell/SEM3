@@ -1,4 +1,3 @@
-import gymnasium as gym
 from replay_buffer import ReplayBuffer
 import tensorflow as tf
 from image_pre import process_inputs
@@ -7,6 +6,8 @@ import yaml
 from agent import Agent, linearly_decaying_epsilon
 from time import time
 import argparse
+from atari import Atari
+from atari import AtariMonitor
 from logger import Logger
 
 data_spec = [
@@ -222,12 +223,14 @@ def main():
 
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
-    env = gym.make(config_args['game'], 
-                   render_mode="rgb_array", 
-                   obs_type='grayscale', 
-                   frameskip=config_args['frameskip'])
+    env = Atari("../roms/assault.bin")
+    # env = gym.make(config_args['game'], 
+    #                render_mode="rgb_array", 
+    #                obs_type='grayscale', 
+    #                frameskip=config_args['frameskip'])
     
-    n_actions = env.action_space.n
+    # n_actions = env.action_space.n
+    n_actions = env.n_actions
     
     agent = Agent(config_args['stack_frames'], 
                   config_args['encoder_network'],
@@ -260,37 +263,18 @@ def main():
         train(agent, env, config_args, terminal_args.name)
     
     if terminal_args.evaluate:
-        test_env = gym.wrappers.Monitor(env, config_args['video_dir']+'testing')
-        evaluate(agent, test_env, config_args, terminal_args.name)
-        test_env.close()
+        test_env = AtariMonitor(env, config_args['video_dir']+'testing')
+        evaluate(agent, test_env, config_args)
+        # test_env.close()
     
     if terminal_args.play:
-        play_env = gym.wrappers.RecordVideo(env, config_args['video_dir']+'play', name_prefix=terminal_args.name)
-        evaluate(agent, play_env, config_args, terminal_args.name, restore=True)
-        play_env.close()
+        play_env = AtariMonitor(env, config_args['video_dir']+'play')
+        evaluate(agent, play_env)
+        # play_env.close()
     
-    env.close()
+    # env.close()
     
 if __name__ == "__main__":
     print("\nDevices available: ", tf.config.list_physical_devices('GPU'))
     print(tf.test.gpu_device_name())
     main()
-
-
-# Look at summary writer and checkpoint stuff (can we name runs?)
-# if needed, look into using 2 GPUs / some optimization (by some rough calculation it'll take ~100 hours for 100k frames and we only have 48...)
-#   would more cores or memory help?
-
-# figure out metrics/comparison with BBF / CASL
-
-# data augmentation
-# what to do to target network during reset?
-# renormalization
-
-# audio support for ALE
-# different architectures with audio + run experiments
-
-# add distributional DQN
-# add dueling DQN
-# add double DQN
-# maybe add prioritized replay buffer? (can probably mostly copy from BBF)
