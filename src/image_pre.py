@@ -3,117 +3,63 @@ import cv2
 import tensorflow as tf
 
 
-# def resize_image(self,image):
+def central_crop(image, crop_height, crop_width):
+    # fix this logic maybe its mad wack 
+    height, width = image.shape[:2]
+    start_x = max(width // 2 - (crop_width // 2), 0)
+    start_y = max(height // 2 - (crop_height // 2), 0)
+    end_x = min(start_x + crop_width, width)
+    end_y = min(start_y + crop_height, height)
+
+    cropped_image = image[start_y:end_y, start_x:end_x]
+
+    return cropped_image
+
+def _crop_with_indices(img, x, y, cropped_shape):
+    cropped_image = tf.image.crop_to_bounding_box(img, y, x, cropped_shape[-3], cropped_shape[-2])
+    return cropped_image
+
+def _per_image_random_crop(img, cropped_shape):
+    """Random crop an image."""
+    batch_size, width, height = cropped_shape[:-1]
+    # size has to be a scalar because tf.image.crop_to_bounding_box doesn't allow for different starting_x, starting_y across a batch
+    x = np.random.randint(0, img.shape[1]-width, size=())
+    y = np.random.randint(0, img.shape[2]-height, size=())
+    return _crop_with_indices(img, x, y, cropped_shape)
+
+def _intensity_aug(x, scale=0.05):
+    """Follows the code in Schwarzer et al. (2020) for intensity augmentation."""
+    r = np.random.normal(size=(x.shape[0], 1, 1, 1))
+    noise = 1.0 + (scale * np.clip(r, -2.0, 2.0))
+    return x * noise
+
+def drq_image_aug(obs, img_pad=4):
+    """Padding and cropping for DrQ."""
+    flat_obs = tf.reshape(obs, (-1, *obs.shape[-3:]))
+
+    paddings = [(0, 0), (img_pad, img_pad), (img_pad, img_pad), (0, 0)]
+    cropped_shape = flat_obs.shape
     
-# Github Paper: https://github.com/spragunr/deep_q_rl/tree/master
+    flat_obs = np.pad(flat_obs, paddings, 'edge')
+    cropped_obs = _per_image_random_crop(flat_obs, cropped_shape)
+    aug_obs = _intensity_aug(cropped_obs)
+    return tf.reshape(aug_obs, obs.shape)
 
-# either linearly scales or center crops + the data + the augmentation
-# linear: bool -> if False, center crop if True, linear scale
+def process_inputs(image, scale_type: str): 
+    crop_height, crop_width = 84, 84  # Desired crop size 
+    # original_height, original_width = 210, 160  # Original image size 
 
-def process_inputs(image, linear_scale: bool, augmentation: bool):
-    crop_height, crop_width = 84, 84  # Desired crop size
-    original_height, original_width = 210, 160  # Original image size
+    image = image.astype(np.float32) / 255.0 
 
-    image = image.astype(np.float32) / 255.0
-
-    central_fraction = min(crop_height/original_height, crop_width/original_width)
-    if linear_scale:
+    # central_fraction = min(crop_height/original_height, crop_width/original_width) 
+    if scale_type == 'linear': 
         # linearly scale it 
-        return cv2.resize(image,
-                              (crop_height, crop_width),
-                              interpolation=cv2.INTER_LINEAR)
-    else:
-        image = tf.expand_dims(image, axis=-1)
-        return tf.image.central_crop(image, central_fraction) 
+        return cv2.resize(image, 
+                              (crop_height, crop_width), 
+                              interpolation=cv2.INTER_LINEAR) 
+    elif scale_type == 'crop': 
+        return central_crop(image, crop_height, crop_width)
 
-
-        # linearly scale it down 
-# self.uses_augmentation = False
-#         for aug in augmentation:
-#             if aug == "affine":
-#                 transformation = RandomAffine(5, (.14, .14), (.9, 1.1), (-5, 5))
-#                 eval_transformation = nn.Identity()
-#                 self.uses_augmentation = True
-#             elif aug == "crop":
-#                 transformation = RandomCrop((84, 84))
-#                 # Crashes if aug-prob not 1: use CenterCrop((84, 84)) or Resize((84, 84)) in that case.
-#                 eval_transformation = CenterCrop((84, 84))
-#                 self.uses_augmentation = True
-#                 imagesize = 84
-#             elif aug == "rrc":
-#                 transformation = RandomResizedCrop((100, 100), (0.8, 1))
-#                 eval_transformation = nn.Identity()
-#                 self.uses_augmentation = True
-#             elif aug == "blur":
-#                 transformation = GaussianBlur2d((5, 5), (1.5, 1.5))
-#                 eval_transformation = nn.Identity()
-#                 self.uses_augmentation = True
-#             elif aug == "shift":
-#                 transformation = nn.Sequential(nn.ReplicationPad2d(4), RandomCrop((84, 84)))
-#                 eval_transformation = nn.Identity()
-#             elif aug == "intensity":
-#                 transformation = Intensity(scale=0.05)
-#                 eval_transformation = nn.Identity()
-#             elif aug == "none":
-#                 transformation = eval_transformation = nn.Identity()
-#             else:
-#                 raise NotImplementedError()
-#             self.transforms.append(transformation)
-#             self.eval_transforms.append(eval_transformation)        
-# if the gym environment auto does frame skip 
-
-
-# ale = ALEInterface()
-# ale.act(action)
-# rgb_image = ale.getScreenRGB()
-
-# downscales and then stacks the frames (210,160)
-# resize the appropriate image
-    # def resize_image(self, image):
-    #     """ Appropriately resize a single image """
-
-    #     if self.resize_method == 'crop':
-    #         # resize keeping aspect ratio
-    #         resize_height = int(round(
-    #             float(self.height) * self.resized_width / self.width))
-
-    #         resized = cv2.resize(image,
-    #                              (self.resized_width, resize_height),
-    #                              interpolation=cv2.INTER_LINEAR)
-
-    #         # Crop the part we want
-    #         crop_y_cutoff = resize_height - CROP_OFFSET - self.resized_height
-    #         cropped = resized[crop_y_cutoff:
-    #                           crop_y_cutoff + self.resized_height, :]
-
-    #         return cropped
-    #     elif self.resize_method == 'scale':
-    #         return cv2.resize(image,
-    #                           (self.resized_width, self.resized_height),
-    #                           interpolation=cv2.INTER_LINEAR)
-    #     else:
-    #         raise ValueError('Unrecognized image resize method.')
-
-
-# this makes the images gray 
-
-# import sys
-# import matplotlib.pyplot as plt
-# import cPickle
-# import lasagne.layers
-
-# net_file = open(sys.argv[1], 'r')
-# network = cPickle.load(net_file)
-# print network
-# q_layers = lasagne.layers.get_all_layers(network.l_out)
-# w = q_layers[1].W.get_value()
-# count = 1
-# for f in range(w.shape[0]): # filters
-#     for c in range(w.shape[1]): # channels/time-steps
-#         plt.subplot(w.shape[0], w.shape[1], count)
-#         img = w[f, c, :, :]
-#         plt.imshow(img, vmin=img.min(), vmax=img.max(),
-#                    interpolation='none', cmap='gray')
-#         plt.xticks(())
-#         plt.yticks(())
-#         count += 1
+    
+        
+  

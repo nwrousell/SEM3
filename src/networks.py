@@ -1,16 +1,12 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, MaxPool2D, BatchNormalization, ReLU, LayerNormalization, Input, Dropout, Dense, Lambda
+from tensorflow.keras.layers import Conv2D, MaxPool2D, BatchNormalization, ReLU, LayerNormalization, Input, Dropout, Dense, Lambda, Layer
 import numpy as np
 
+# it does not work -> using this goes to NAN
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L315
-def renormalize(tensor, has_batch=False, is_rollout=False):
+def renormalize(tensor):
     shape = tensor.shape
-    if not has_batch:
-        tensor = tf.expand_dims(tensor, 0)
-    if not is_rollout:
-        tensor = tf.reshape(tensor, [tensor.shape[0], -1])
-    else:
-        tensor = tf.reshape(tensor, [tensor.shape[0], tensor.shape[1], -1])
+    tensor = tf.reshape(tensor, [tensor.shape[0], -1])
     max_value = tf.reduce_max(tensor, axis=-1, keepdims=True)
     min_value = tf.reduce_max(tensor, axis=-1, keepdims=True)
     return tf.reshape(((tensor - min_value) / (max_value - min_value + 1e-5)), shape)
@@ -88,35 +84,98 @@ def DQN_CNN(input_shape, padding='VALID', dims=(32, 64, 64), width_scale=1, drop
     return tf.keras.Model(inputs=inputs, outputs=outputs, name="encoder")
 
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L242
-class LinearHead(tf.keras.Model):
-    def __init__(self, num_actions, num_atoms, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
-        self.advantage = Dense(units = num_actions * num_atoms, kernel_initializer=initializer, dtype=dtype)
+class LinearHead(Layer):
+    """A linear DQN head supporting dueling networks.
+
+    Attributes:
+        advantage: Advantage layer.
+        value: Value layer (if dueling).
+        dueling: Bool, whether to use dueling networks.
+        num_actions: int, size of action space.
+        num_atoms: int, number of value prediction atoms per action.
+        dtype: np dtype.
+        initializer: tensorflow initializer.
+    """
+
+    def __init__(self, dueling, num_actions, num_atoms, dtype, initializer=tf.initializers.GlorotUniform()):
+        super().__init__(name="q_head", dtype=dtype)
+        self.dueling = dueling
+        self.num_actions = num_actions
+        self.num_atoms = num_atoms
+        self.initializer = initializer
         
+        if self.dueling:
+            self.advantage = Dense(
+                self.num_actions * self.num_atoms,
+                dtype=dtype,
+                kernel_initializer=self.initializer,
+                bias_initializer=self.initializer
+            )
+            self.value = Dense(
+                self.num_atoms,
+                dtype=dtype,
+                kernel_initializer=self.initializer,
+                bias_initializer=self.initializer
+            )
+        else:
+            self.advantage = Dense(
+                self.num_actions * self.num_atoms,
+                dtype=dtype,
+                kernel_initializer=self.initializer,
+                bias_initializer=self.initializer
+            )
+
     def __call__(self, x):
-        logits = self.advantage(x)
+        if self.dueling:
+            adv = self.advantage(x)
+            value = self.value(x)
+            # adv = adv.reshape((self.num_actions, self.num_atoms))
+            adv = tf.reshape(adv, (x.shape[0], self.num_actions, self.num_atoms))
+            # value = value.reshape((1, self.num_atoms))
+            value = tf.reshape(value, (x.shape[0], 1, self.num_atoms))
+            # logits = value + (adv - (jnp.mean(adv, -2, keepdims=True)))
+            logits = value + (adv - tf.reduce_mean(adv, axis=-2, keepdims=True))
+        else:
+            x = self.advantage(x)
+            # logits = x.reshape((self.num_actions, self.num_atoms))
+            logits = tf.reshape(x, (x.shape[0], self.num_actions, self.num_atoms))
         return logits
+    
+    def build(self, input_shape):
+        if self.dueling:
+            self.advantage.build(input_shape)
+            self.value.build(input_shape)
+        else:
+            self.advantage.build(input_shape)
+
+    def compute_output_shape(self, input_shape):
+        return tf.TensorShape((input_shape[0], self.num_actions, self.num_atoms))
+    
+    def get_config(self):
+        return {"dueling": self.dueling, "num_actions": self.num_actions, "num_atoms": self.num_atoms}
         
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L697
 class BBFModel(tf.keras.Model):
-    def __init__(self, input_shape, encoder_network, num_actions, hidden_dim, num_atoms, width_scale=4, renormalize=False, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
+    def __init__(self, input_shape, encoder_network, num_actions, hidden_dim, num_atoms, width_scale=4, renormalize=False, dueling=True, distributional=True, dtype=np.float32, initializer=tf.initializers.GlorotUniform()):
         super().__init__()
         self.renormalize = renormalize
+        self.dueling = dueling
+        self.distributional = distributional
         self.hidden_dim = hidden_dim
         self.num_atoms = num_atoms
         self.width_scale = width_scale
         self.num_actions = num_actions
         
         if encoder_network == 'ImpalaWide':
-            encoder_dims = (16,32,32) # pre-scaled!
-            self.encoder = ScaledImpalaCNN(input_shape, dims=encoder_dims, width_scale=self.width_scale)
+            encoder_dims = (16,32,32) # before scaling!
+            self.encoder = ScaledImpalaCNN(input_shape, dims=encoder_dims, width_scale=self.width_scale, initializer=initializer)
             latent_dim = encoder_dims[-1] * self.width_scale
         else:
             latent_dim = 64
             self.encoder = DQN_CNN(input_shape)
         
         # head used to predict Q values
-        # self.head = LinearHead(num_actions=num_actions, num_atoms=num_atoms, dtype=dtype, initializer=initializer)
-        self.head = Dense(units = num_actions * num_atoms, name="head")
+        self.head = LinearHead(dueling=dueling, num_actions=num_actions, num_atoms=num_atoms, dtype=dtype, initializer=initializer)
         
         # transition model
         self.TransitionCell = tf.keras.Sequential([
@@ -124,14 +183,14 @@ class BBFModel(tf.keras.Model):
             Conv2D(filters=latent_dim, kernel_size=3, strides=1, kernel_initializer=initializer, padding="SAME", activation="relu")
         ], name="transition")
         
-        self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, dtype=dtype, name="projection")
+        self.projection = Dense(units=hidden_dim, kernel_initializer=initializer, bias_initializer=initializer, name="projection")
         
-        self.predictor = Dense(units=self.hidden_dim, kernel_initializer=initializer, name="predictor")
+        self.predictor = Dense(units=self.hidden_dim, kernel_initializer=initializer, bias_initializer=initializer, name="predictor")
     
     def encode(self, x, has_batch=False, is_rollout=False):
         latent = self.encoder(x)
         if self.renormalize:
-            latent = renormalize(latent, has_batch, is_rollout)
+            latent = renormalize(latent)
         return latent
 
     def encode_project(self, x, has_batch=False, is_rollout=False):
@@ -152,7 +211,7 @@ class BBFModel(tf.keras.Model):
         x = self.TransitionCell(x)
                             
         if self.renormalize:
-            x = renormalize(x, True)
+            x = renormalize(x)
                 
         return x, x
     
@@ -170,7 +229,6 @@ class BBFModel(tf.keras.Model):
         projected = self.project(x)
         return self.predictor(projected)
     
-    @tf.function
     def spr_rollout(self, latent, actions):
         _, pred_latents = self.predict_transitions(latent, actions)
 
@@ -191,20 +249,24 @@ class BBFModel(tf.keras.Model):
 
         return representation
     
-    def __call__(self, x, do_rollout=False, actions=None):
+    def __call__(self, x, support, do_rollout=False, actions=None):
         spatial_latent = self.encode(x)
                 
         representation = self.flatten_spatial_latent(spatial_latent, True) # changed has_batch to be True here (different from BBF code)
                 
-        # Single hidden layer
         x = self.project(representation)
         x = ReLU()(x)
         
         if do_rollout:
             spatial_latent = self.spr_rollout(spatial_latent, actions)
 
-        logits = self.head(x)
+        logits = self.head(x) # (batch_size, num_actions, num_atoms)
         
-        q_values = tf.squeeze(logits)
+        if self.distributional:
+            probabilities = tf.squeeze(tf.nn.softmax(logits)) # (batch_size, num_actions, num_atoms)
+            q_values = tf.squeeze(tf.reduce_sum(support * probabilities, axis=-1)) # (batch_size, num_actions)
+            return q_values, logits, probabilities, spatial_latent, representation
+        
+        q_values = tf.squeeze(logits) # if num_atoms == 1 (not distributional), removes the trailing axis
                 
-        return q_values, spatial_latent, representation
+        return q_values, None, None, spatial_latent, representation

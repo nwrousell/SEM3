@@ -3,11 +3,12 @@ import tensorflow as tf
 from image_pre import process_inputs
 import numpy as np
 import yaml
-from agent import Agent
+from agent import Agent, linearly_decaying_epsilon
 from time import time
 import argparse
 from atari import Atari
 from atari import AtariMonitor
+from logger import Logger
 
 data_spec = [
     tf.TensorSpec(shape=(84,84), name="observation", dtype=np.float32),
@@ -16,36 +17,14 @@ data_spec = [
     tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
 ]
 
-# stolen from Dopamine: https://github.com/google/dopamine/blob/master/dopamine/agents/dqn/dqn_agent.py#L41C1-L62C25
-def linearly_decaying_epsilon(decay_period, step, warmup_steps, epsilon):
-    """Returns the current epsilon for the agent's epsilon-greedy policy.
-
-    This follows the Nature DQN schedule of a linearly decaying epsilon (Mnih et
-    al., 2015). The schedule is as follows:
-        Begin at 1. until warmup_steps steps have been taken; then
-        Linearly decay epsilon from 1. to epsilon in decay_period steps; and then
-        Use epsilon from there on.
-
-    Args:
-        decay_period: float, the period over which epsilon is decayed.
-        step: int, the number of training steps completed so far.
-        warmup_steps: int, the number of steps taken before epsilon is decayed.
-        epsilon: float, the final value to which to decay the epsilon parameter.
-
-    Returns:
-        A float, the current epsilon value computed according to the schedule.
-    """
-    steps_left = decay_period + warmup_steps - step
-    bonus = (1.0 - epsilon) * steps_left / decay_period
-    bonus = np.clip(bonus, 0.0, 1.0 - epsilon)
-    return epsilon + bonus
+train_log_fields = ['environment_step', 'gradient_step', 'spr_loss', 'td_error', 'num_episodes', 'episode_reward', 'episode_length']
+eval_log_fields = ['environment_step', 'gradient_step', 'num_train_episodes', 'mean_episode_reward', 'mean_episode_length']
     
-    
-def train(agent: Agent, env, args):
-    train_writer = tf.summary.create_file_writer(args['summaries_dir']+'train')
-    test_writer = tf.summary.create_file_writer(args['summaries_dir']+'test')
+def train(agent: Agent, env, args, run_name):
+    train_logger = Logger(args['summaries_dir']+run_name+"/", "train_log.csv", train_log_fields)
+    eval_logger = Logger(args['summaries_dir']+run_name+"/", "eval_log.csv", eval_log_fields)
     checkpoint = tf.train.Checkpoint(step=tf.Variable(0), optimizer=agent.optimizer, model=agent.online_model)
-    manager = tf.train.CheckpointManager(checkpoint, args['model_dir'], max_to_keep=3)
+    manager = tf.train.CheckpointManager(checkpoint, args['model_dir']+run_name, max_to_keep=3)
     
     replay_buffer = ReplayBuffer(data_spec, 
                                  replay_capacity=args['replay_capacity'], 
@@ -65,11 +44,15 @@ def train(agent: Agent, env, args):
     max_mean_reward = None
     num_grad_steps = 0
     prev_num_episodes_log = -1
+    spr_error = -1
+    td_error = -1
+    episode_length = 0
+
     
     start_time = time()
     
     if args['process_inputs']:
-        observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+        observation = process_inputs(observation, scale_type=args['scale_type'])
 
     current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     
@@ -78,9 +61,10 @@ def train(agent: Agent, env, args):
         
         action = agent.choose_action(current_state, epsilon)
         observation, reward, terminated, _, _ = env.step(action)
+        episode_length += 1
         
         if args['process_inputs']:
-            observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+            observation = process_inputs(observation, scale_type=args['scale_type'])
         
         current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
         
@@ -93,15 +77,26 @@ def train(agent: Agent, env, args):
         
         if terminated:
             print("TERMINATED")
+            log_data = {
+                "environment_step": t,
+                "gradient_step": num_grad_steps,
+                "spr_loss": spr_error,
+                "td_error": td_error,
+                "num_episodes": len(episode_rewards),
+                "episode_reward": episode_rewards[-1],
+                "episode_length": episode_length
+            }
+            train_logger.log(log_data)
             observation, _ = env.reset()
+            episode_length = 0
             if args['process_inputs']:
-                observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+                observation = process_inputs(observation, scale_type=args['scale_type'])
             current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
             episode_rewards.append(0.0)
         
         if t > args['initial_collect_steps']:
-            update_horizon = round(agent.update_horizon_scheduler(num_grad_steps))
-            gamma = agent.gamma_scheduler(num_grad_steps)
+            update_horizon = round(agent.update_horizon_scheduler(num_grad_steps % args['reset_every']))
+            gamma = agent.gamma_scheduler(num_grad_steps % args['reset_every'])
             
             for s in range(args['replay_ratio']):
                 num_grad_steps += 1
@@ -115,53 +110,50 @@ def train(agent: Agent, env, args):
                     agent.update_target()
                 
                 if num_grad_steps % args['reset_every'] == 0:
+                    print("WEIGHTS RESET")
                     agent.reset_weights()
         
         num_episodes = len(episode_rewards)
         if num_episodes > args['min_episodes']:
             mean_reward = np.mean(episode_rewards[-(args['min_episodes']+1):-1])
         
-        if num_grad_steps > 0:
-            print(f"environment steps: {t}. grad updates: {num_grad_steps}. num episodes: {num_episodes}")
-        
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['print_frequency'] == 0:
             print(f"Gradient steps: {num_grad_steps}. Environment steps: {t}")
             if num_episodes != prev_num_episodes_log:
-                elapsed = time() - start_time
+                elapsed = (time() - start_time) // 60
                 print(f"Finished episode #{num_episodes-1} with reward: {episode_rewards[-2]}")
                 prev_num_episodes_log = num_episodes
-                print(f"- Num episodes: {num_episodes}\n- TD error: {td_error}\n- SPR error: {spr_error}\n- Time elapsed: {elapsed}s\n- Epsilon: {epsilon}\n- Update horizon: {update_horizon}\n- Gamma: {gamma}")
+                print(f"- Num episodes: {num_episodes}\n- TD error: {td_error}\n- SPR error: {spr_error}\n- Time elapsed: {elapsed}m\n- Epsilon: {epsilon}\n- Update horizon: {update_horizon}\n- Gamma: {gamma}")
                 if max_mean_reward is None or mean_reward > max_mean_reward:
                     max_mean_reward = mean_reward
                     print(f"improvement in mean_{args['min_episodes']}ep_reward: {max_mean_reward}")
                 else:
                     print(f"No improvement in max mean_{args['min_episodes']}ep_reward. Achieved: {mean_reward}, max: {max_mean_reward}")
                 print()
-
-                with train_writer.as_default():
-                    tf.summary.scalar(f"ep{num_episodes}_reward", episode_rewards[-2], step=t)
-                    tf.summary.scalar("td_error", td_error, step=t)
-                    tf.summary.scalar("spr_error", spr_error, step=t)
-
-                if num_episodes % 5 == 0:
-                    with train_writer.as_default():
-                        agent.layers_summary(t)
         
         if num_episodes > args['min_episodes'] and t > args['initial_collect_steps'] and t % args['eval_frequency'] == 0:
-            eval_mean_reward = evaluate(agent, env, args)
             checkpoint.step.assign_add(1)
             save_path = manager.save()
+            print("saved current model")
+            eval_mean_reward, eval_mean_length = evaluate(agent, env, args, run_name)
             print(f"Evaluation reward at {t} step is {eval_mean_reward}")
-            with test_writer.as_default():
-                tf.summary.scalar('eval_reward', eval_mean_reward, step=t)
+            log_data = {
+                'environment_step': s,
+                'gradient_step': num_grad_steps, 
+                'num_train_episodes': len(episode_rewards),
+                'mean_episode_reward': eval_mean_reward, 
+                'mean_episode_length': eval_mean_length
+            }
+            eval_logger.log(log_data)
    
-def evaluate(agent: Agent, env, args, restore=False, play=False):
+def evaluate(agent: Agent, env, args, run_name, restore=False, play=False):
     print("beginning evaluation")
     if restore:
-        checkpoint = tf.train.checkpoint(model=agent.online_model())
-        latest_snapshot= tf.train.latest_checkpoint(args['model_dir'])
+        checkpoint = tf.train.Checkpoint(model=agent.online_model)
+        latest_snapshot= tf.train.latest_checkpoint(args['model_dir']+run_name)
+        # latest_snapshot = tf.train.latest_checkpoint(args['model_dir'])
         if not latest_snapshot:
-            raise Exception(f"No model snapshot found in {args['model_dir']}")
+            raise Exception(f"No model snapshot found in {args['model_dir']+run_name}")
         
         checkpoint.restore(latest_snapshot)
         print("Restored model from latest snapshot")
@@ -169,9 +161,10 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     observation, _ = env.reset()
     
     eval_episode_rewards = [0.0]
+    eval_episode_lengths = [0]
     
     if args['process_inputs']:
-        observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+        observation = process_inputs(observation, scale_type=args['scale_type'])
 
     current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     epsilon = args['evaluation_epsilon']
@@ -179,32 +172,34 @@ def evaluate(agent: Agent, env, args, restore=False, play=False):
     while True:
         action = agent.choose_action(current_state, epsilon)
         observation, reward, terminated, _, _ = env.step(action)
-        
+
         if args['process_inputs']:
-            observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+            observation = process_inputs(observation, scale_type=args['scale_type'])
             
         current_state = np.concatenate([current_state[:,:,1:], observation[:,:,np.newaxis]], dtype=np.float32, axis=-1)
         
         eval_episode_rewards[-1] += reward
-        
-        eval_mean_reward = np.mean(eval_episode_rewards)
+        eval_episode_lengths[-1] += 1
         
         if terminated:
+            print("TERMINATED")
+            eval_mean_reward = np.mean(eval_episode_rewards)
+            eval_mean_length = np.mean(eval_episode_lengths)
             observation, _ = env.reset()
             if args['process_inputs']:
-                observation = process_inputs(observation, linear_scale=args['linear_scale'], augmentation=False)
+                observation = process_inputs(observation, scale_type=args['scale_type'])
             current_state = np.concatenate([np.zeros((84,84,args['stack_frames']-1)), observation[:,:,np.newaxis]], axis=-1)
             
             num_episodes = len(eval_episode_rewards)
-            if restore:
-                print(f"[Eval] Mean reward after {num_episodes} episodes is {round(eval_mean_reward, 2)}")
+            print(f"[Eval] Mean reward after {num_episodes} episodes is {round(eval_mean_reward, 2)}")
             if play:
                 break
             if num_episodes >= args['evaluation_episodes']:
                 break
             eval_episode_rewards.append(0.0)
+            eval_episode_lengths.append(0)
     
-    return round(eval_mean_reward, 2)
+    return round(eval_mean_reward, 2), eval_mean_length
         
 def main():
     config_fname = "config.yaml"
@@ -218,10 +213,14 @@ def main():
     parser.add_argument('--train', help='train an agent to find optimal policy', action='store_true')
     parser.add_argument('--evaluate', help='evaluate trained policy of an agent', action='store_true')
     parser.add_argument('--play', help='let trained agent play', action='store_true')
+    parser.add_argument('--name', help="name to use for checkpoint/logger/video files")
+    parser.add_argument("--seed", help="seed to initialize RNGs")
     # parser.add_argument('--env', nargs=1, help='Atari 2600 game used as environment', type=str)
     
     terminal_args = parser.parse_args()
     
+    print("seed:", terminal_args.seed)
+
     render_mode = 'human' if terminal_args.play else 'rgb_array'
     
     env = Atari("../roms/assault.bin")
@@ -249,11 +248,19 @@ def main():
                   config_args['shrink_factor'],
                   config_args['spr_prediction_depth'],
                   (84, 84),
-                  config_args['renormalize'] # ! not implemented
+                  config_args['renormalize'], # ! not implemented
+                  config_args['double_DQN'],
+                  config_args['distributional_DQN'],
+                  config_args['dueling_DQN'],
+                  config_args['vmax'],
+                  config_args['num_atoms'],
+                  terminal_args.seed,
+                  config_args['data_augmentation'],
+                  config_args['reset_target']
                   )
     
     if terminal_args.train:
-        train(agent, env, config_args)
+        train(agent, env, config_args, terminal_args.name)
     
     if terminal_args.evaluate:
         test_env = AtariMonitor(env, config_args['video_dir']+'testing')
@@ -269,4 +276,5 @@ def main():
     
 if __name__ == "__main__":
     print("\nDevices available: ", tf.config.list_physical_devices('GPU'))
+    print(tf.test.gpu_device_name())
     main()
