@@ -2,7 +2,7 @@
 
 1. Clone https://github.com/shayegano/Arcade-Learning-Environment
 2. Then clone https://github.com/libsdl-org/SDL-1.2.git
-3. In that SDL-1.2 directory, run `Run './configure  ; make; make install'`
+3. In that SDL-1.2 directory, run `Run './configure --prefix=/users/<cslogin> --libdir=/users/<cslogin>/bin/lib64; make; make install'`
 4. Back in the `Arcade-Learning-Environment` directory, open `CMakeLists.txt` in a text editor
     - Around line 26, you'll see `if("SDL_FOUND" "AND" "SDL_VERSION_STRING"...)`, change that if statement to `if(SDL_FOUND AND SDL_VERSION_STRING VERSION_LESS 2.0.0)`
     - Someplace before the "if(USE_SDL)" line add these three lines:
