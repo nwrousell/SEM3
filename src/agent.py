@@ -106,7 +106,8 @@ class Agent:
     
     def choose_action(self, video, audio, epsilon):
         video = video[np.newaxis,:,:,:]
-        
+        audio = audio[np.newaxis,:,:]
+
         observation = (video, audio)
 
         prob = np.random.random()
