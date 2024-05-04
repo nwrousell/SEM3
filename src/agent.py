@@ -250,7 +250,7 @@ class Agent:
                 )
 
                 # Weight the loss by the inverse priorities.
-                td_error = td.reduce_mean(loss_weights * td_error)
+                td_error = tf.reduce_mean(loss_weights * td_error)
             
             loss = td_error + self.spr_loss_weight * spr_loss
         
