@@ -1,6 +1,6 @@
 # BBF config: https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/configs/BBF.gin
 
-game: "amidar" # 'Amidar-v4' | 'Assault-v4'
+game: "assault" # 'Amidar-v4' | 'Assault-v4'
 batch_size: 32
 subseq_len: 10
 target_ema_tau: 0.995 # how much to interpolate weights for the EMA of the target network
@@ -18,7 +18,7 @@ distributional_DQN: True
 dueling_DQN: True
 target_update_frequency: 1
 target_action_selection: True # whether to use the target network for action selection during data collection
-audio: True
+audio: False
 
 hidden_dim: 2048 # size of the projection / prediction layers
 num_atoms: 51
@@ -48,7 +48,7 @@ num_env_steps: 100_000 # Atari 100k
 
 ## Pre-processing
 data_augmentation: True
-scale_type: 'none' # 'linear' or 'crop' or 'none'
+scale_type: 'linear' # 'linear' or 'crop' or 'none'
 
 summaries_dir: '../runs/summaries/'
 model_dir: '../runs/models/'

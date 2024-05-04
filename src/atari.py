@@ -69,15 +69,16 @@ class Atari:
 
 
 class AtariMonitor:
-  def __init__(self, env, video_dir, folder_name):
+  def __init__(self, env, video_dir, folder_name, audio_included):
     self.env = env
     self.video_dir = video_dir
     self.framerate = 60 # Should read from ALE settings technically
     self.samples_per_frame = 512 # Should read from ALE SoundExporter class technically
     self.audio_freq = self.framerate*self.samples_per_frame #/ self.env.frame_skip
     self.action_count = 0
-    self.episode_count = 0
+    self.episode_count = 1
     self.all_audio = np.zeros((0, ), dtype=np.uint8)
+    self.audio_included = audio_included
     
     
     self.save_dir_av = video_dir + folder_name + '/logs_av_seq' # Save png sequence and audio wav file here
@@ -87,9 +88,10 @@ class AtariMonitor:
     self.create_save_dir(self.save_dir_av)
   
   def reset(self):
-    self.save_audio(self.all_audio)
-    self.save_movie("run_" + str(int(time.time())) + "_episode_" + str(self.episode_count))
-    self.episode_count += 1
+    if self.action_count > 0:
+      self.save_audio(self.all_audio)
+      self.save_movie("run_" + str(int(time.time())) + "_episode_" + str(self.episode_count))
+      self.episode_count += 1
     return self.env.reset()
 
   def step(self, action):
@@ -97,8 +99,9 @@ class AtariMonitor:
     self.action_count += 1
     image, audio = self.env.get_image_and_audio()
     self.all_audio = np.append(self.all_audio, audio)
-    audio_mfcc = self.audio_to_mfcc(self.env.ale.getAudio())
-    image = self.concat_image_audio(self.env.ale.getScreenRGB(), audio_mfcc)
+    if self.audio_included:
+      audio_mfcc = self.audio_to_mfcc(self.env.ale.getAudio())
+      image = self.concat_image_audio(image, audio_mfcc)
     self.save_image(image)
     return observation, reward, terminated, None, None
   

@@ -150,7 +150,7 @@ def evaluate(agent: Agent, env, args, run_name, vid_shape, restore=False, play=F
     print("beginning evaluation")
     if restore:
         checkpoint = tf.train.Checkpoint(model=agent.online_model)
-        latest_snapshot= tf.train.latest_checkpoint(args['model_dir']+run_name)
+        latest_snapshot= tf.train.latest_checkpoint('save/'+run_name)
         # latest_snapshot = tf.train.latest_checkpoint(args['model_dir'])
         if not latest_snapshot:
             raise Exception(f"No model snapshot found in {args['model_dir']+run_name}")
@@ -274,12 +274,12 @@ def main():
         train(agent, env, config_args, terminal_args.name, data_spec, vid_shape)
     
     if terminal_args.evaluate:
-        test_env = AtariMonitor(env, config_args['video_dir']+terminal_args.name, terminal_args.name)
+        test_env = AtariMonitor(env, config_args['video_dir'], terminal_args.name, audio_included=config_args['audio'])
         evaluate(agent, test_env, config_args, terminal_args.name, vid_shape)
         # test_env.close()
     
     if terminal_args.play:
-        play_env = AtariMonitor(env, config_args['video_dir']+terminal_args.name, terminal_args.name)
+        play_env = AtariMonitor(env, config_args['video_dir'], terminal_args.name, audio_included=config_args['audio'])
         evaluate(agent, play_env, config_args, terminal_args.name, vid_shape)
         # play_env.close()
     
