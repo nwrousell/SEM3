@@ -102,7 +102,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
                 num_grad_steps += 1
                 batch = replay_buffer.sample_transition_batch(update_horizon=update_horizon,
                                                       gamma=gamma, 
-                                                      subseq_len=update_horizon)
+                                                      subseq_len=max(update_horizon, args['spr_prediction_depth']))
 
                 loss, td_error, spr_error = agent.train_step(update_horizon, *batch)
                 
@@ -230,8 +230,10 @@ def main():
     
     env = Atari(f"../roms/{config_args['game']}.bin", terminal_args.seed, config_args['frameskip'])
 
-    n_actions = env.n_actions
+    # n_actions = env.n_actions # this is always 18 with ALE so we need to hardcode...
+    n_actions = config_args['n_actions']
     vid_shape = (84,84) if config_args['scale_type'] != 'none' else (210, 160)
+    print(f"playing {config_args['game']} # actions: {n_actions}. vid_shape: {vid_shape}")
 
     data_spec = [
         tf.TensorSpec(shape=vid_shape, name="observation", dtype=np.float32),

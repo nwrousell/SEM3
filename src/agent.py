@@ -206,7 +206,7 @@ class Agent:
 
         batch_size = 32
         hidden_dim = 2048
-                
+        
         with tf.GradientTape() as tape:
             q_values, logits, probabilities, spr_predictions, _ = self.online_model(first_state, self.support, do_rollout=True, actions=next_actions[:,:self.spr_prediction_depth])
             
@@ -220,10 +220,10 @@ class Agent:
 
             # spr_targets = tf.vectorized_map(lambda x: self.target_model.encode_project(x, True, False), next_states_for_spr)
             spr_targets = tf.map_fn(lambda x: self.target_model.encode_project(x, True, False), elems=next_states_for_spr, fn_output_signature=tf.TensorSpec(shape=(batch_size, hidden_dim)))
-            q_targets = self.get_target_q_values(rewards, terminals, discounts, next_video, next_audio, update_horizon)
+            q_targets = self.get_target_q_values(rewards[:,:update_horizon], terminals[:,:update_horizon], discounts[:,:update_horizon], next_video[:,:update_horizon], next_audio[:,:update_horizon], update_horizon)
             
             # compute TD error and SPR loss
-            td_error = self.compute_td_error(q_values, actions, q_targets, logits=logits)
+            td_error = self.compute_td_error(q_values, actions[:,:update_horizon], q_targets, logits=logits)
             spr_loss = self.compute_spr_error(spr_targets, spr_predictions, same_trajectory[:, :self.spr_prediction_depth])
             
             td_error = tf.reduce_mean(td_error)

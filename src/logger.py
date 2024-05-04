@@ -13,8 +13,7 @@ class Logger:
         os.makedirs(self.directory, exist_ok=True)
         with open(self.filename, mode='w', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=self.fields)
-            if not file_exists:
-                writer.writeheader()
+            writer.writeheader()
         print("Opened log file at "+self.filename)
 
     def log(self, data):
