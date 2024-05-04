@@ -38,7 +38,6 @@ class Atari:
     video = np.zeros(self.screen_width*self.screen_height*3, dtype=np.uint8)
     video = self.ale.getScreenGrayscale()
     audio = self.ale.getAudio()
-    # print(audio)
     return np.reshape(video, (self.screen_height, self.screen_width, 1)) , np.asarray(audio)
   
   def reset(self):

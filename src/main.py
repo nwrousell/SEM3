@@ -271,12 +271,12 @@ def main():
         train(agent, env, config_args, terminal_args.name, data_spec, vid_shape)
     
     if terminal_args.evaluate:
-        test_env = AtariMonitor(env, config_args['video_dir'], terminal_args.name)
+        test_env = AtariMonitor(env, config_args['video_dir']+terminal_args.name, terminal_args.name)
         evaluate(agent, test_env, config_args, terminal_args.name, vid_shape)
         # test_env.close()
     
     if terminal_args.play:
-        play_env = AtariMonitor(env, config_args['video_dir'], terminal_args.name)
+        play_env = AtariMonitor(env, config_args['video_dir']+terminal_args.name, terminal_args.name)
         evaluate(agent, play_env, config_args, terminal_args.name, vid_shape)
         # play_env.close()
     

@@ -155,10 +155,14 @@ class LinearHead(Layer):
         return {"dueling": self.dueling, "num_actions": self.num_actions, "num_atoms": self.num_atoms}
         
 
-def AudioEncoder(encoder, initializer):
+def AudioEncoder(encoder, initializer, scale):
     if encoder == 'ImpalaWide':
-        reshape_to = (9, 9, 2)
-        dense_units = 162
+        if scale:
+            reshape_to = (9, 9, 2)
+            dense_units = 162
+        else:
+            reshape_to = (25, 19, 1)
+            dense_units = 475
     else:
         reshape_to = (7, 7, 2)
         dense_units = 98
@@ -199,8 +203,11 @@ class BBFModel(tf.keras.Model):
             self.encoder = DQN_CNN(input_shape)
         
         if self.audio:
-            self.audio_encoder = AudioEncoder(encoder=encoder_network, initializer=initializer)
-            latent_dim += 2
+            self.audio_encoder = AudioEncoder(encoder=encoder_network, initializer=initializer, scale=scale)
+            if scale:
+                latent_dim += 2
+            else:
+                latent_dim += 1
 
         # head used to predict Q values
         self.head = LinearHead(dueling=dueling, num_actions=num_actions, num_atoms=num_atoms, dtype=dtype, initializer=initializer)
