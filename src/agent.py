@@ -220,7 +220,7 @@ class Agent:
 
             # spr_targets = tf.vectorized_map(lambda x: self.target_model.encode_project(x, True, False), next_states_for_spr)
             spr_targets = tf.map_fn(lambda x: self.target_model.encode_project(x, True, False), elems=next_states_for_spr, fn_output_signature=tf.TensorSpec(shape=(batch_size, hidden_dim)))
-            q_targets = self.get_target_q_values(rewards[:,:update_horizon], terminals[:,:update_horizon], discounts[:,:update_horizon], next_video[:,:update_horizon], next_audio[:,:update_horizon], update_horizon)
+            q_targets = self.get_target_q_values(rewards[:,:update_horizon], terminals[:,:update_horizon], discounts, next_video[:,:update_horizon], next_audio[:update_horizon], update_horizon)
             
             # compute TD error and SPR loss
             td_error = self.compute_td_error(q_values, actions[:,:update_horizon], q_targets, logits=logits)
