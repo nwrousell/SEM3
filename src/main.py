@@ -86,6 +86,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
             }
             train_logger.log(log_data)
             observation, _ = env.reset()
+            observation = (observation[0], np.zeros((512,)))
             episode_length = 0
             if args['process_inputs']:
                 video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
@@ -158,6 +159,7 @@ def evaluate(agent: Agent, env, args, run_name, vid_shape, restore=False, play=F
         print("Restored model from latest snapshot")
     
     observation, _ = env.reset()
+    observation = (observation[0], np.zeros((512,)))
     
     eval_episode_rewards = [0.0]
     eval_episode_lengths = [0]
@@ -187,6 +189,7 @@ def evaluate(agent: Agent, env, args, run_name, vid_shape, restore=False, play=F
             eval_mean_reward = np.mean(eval_episode_rewards)
             eval_mean_length = np.mean(eval_episode_lengths)
             observation, _ = env.reset()
+            observation = (observation[0], np.zeros((512,)))
             if args['process_inputs']:
                 video, audio = process_inputs(observation, args['audio'], scale_type=args['scale_type'])
             current_video = np.concatenate([np.zeros((*vid_shape,args['stack_frames']-1)), video[:,:,np.newaxis]], axis=-1)
