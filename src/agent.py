@@ -250,9 +250,9 @@ class Agent:
                 )
 
                 # Weight the loss by the inverse priorities.
-                td_error = tf.reduce_mean(loss_weights * td_error)
+                td_error = loss_weights * td_error
             
-            loss = td_error + self.spr_loss_weight * spr_loss
+            loss = tf.reduce_mean(td_error) + self.spr_loss_weight * spr_loss
         
         gradients = tape.gradient(loss, self.online_model.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.online_model.trainable_variables))
