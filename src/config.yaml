@@ -32,7 +32,7 @@ reset_target: True
 spr_prediction_depth: 5
 start_gamma: 0.97
 end_gamma: 0.997
-start_update_horizon: 3
+start_update_horizon: 10
 end_update_horizon: 3
 replay_ratio: 4
 perturb_factor: 0.5
