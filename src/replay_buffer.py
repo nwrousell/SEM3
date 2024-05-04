@@ -4,6 +4,7 @@ import os
 import pickle
 import gzip
 import math
+from sum_tree import SumTree
     
 # A prefix that can not collide with variable names for checkpoint files.
 STORE_FILENAME_PREFIX = '$store$_'
@@ -62,6 +63,7 @@ class ReplayBuffer:
         action_dtype=np.int32,
         audio_dtype=np.float32,
         reward_shape=(),
+        max_sample_attempts=3,
         reward_dtype=np.float32,
         use_next_state=True
         ):
@@ -81,9 +83,10 @@ class ReplayBuffer:
         self._audio_dtype = audio_dtype
         self._use_next_state = use_next_state
         self._state_shape = self._observation_shape + (self._stack_size,)
+        self.prioritized = False
         
         self._data_spec = data_spec
-        self._max_sample_attempts = 3
+        self._max_sample_attempts = max_sample_attempts
         self._subseq_len = subseq_len
         
         self._n_envs = n_envs
@@ -115,6 +118,17 @@ class ReplayBuffer:
         self._episode_end_indices = set()
         
     
+    def get_add_args_signature(self):
+        """The signature of the add function.
+
+        Note - Derived classes may return a different signature.
+        Returns:
+        list of ReplayElements defining the type of the argument signature
+        needed by the add function.
+        """
+        return self._data_spec
+
+
     def _add_zero_transition(self):
         """Adds a padding transition filled with zeros (Used in episode beginnings)."""
         zero_transition = []
@@ -211,8 +225,11 @@ class ReplayBuffer:
         Raises:
             ValueError: If args have wrong length.
         """
-        if len(args) != len(self._data_spec):
-            raise ValueError('Add expects {} elements, received {}'.format(len(self._data_spec), len(args)))
+        correct_n = len(self._data_spec)
+        if self.prioritized:
+            correct_n += 1
+        if len(args) != correct_n:
+            raise ValueError('Add expects {} elements, received {}'.format(correct_n, len(args)))
     
     def is_empty(self):
         """Is the Replay Buffer empty?"""
@@ -668,8 +685,160 @@ class ReplayBuffer:
 
 
 
+class PrioritizedReplayBuffer(
+        ReplayBuffer):
 
-# replay buffer is returning (320, 512, 4) for audio instead of (32, 10, 512, 4)
-# option to not use audio
-# also have to set up next_audio for replay_buffer
-# then in agent.py, re-configure everything (spr predictions, losses, etc.) to use audio as well (if enabled)
+    def __init__(self,
+                data_spec,
+                observation_shape,
+                audio_shape,
+                rng,
+                stack_size,
+                replay_capacity,
+                batch_size,
+                update_horizon=1,
+                subseq_len=0,
+                n_envs=1,
+                gamma=0.99,
+                max_sample_attempts=1000,
+                observation_dtype=np.uint8,
+                terminal_dtype=np.uint8,
+                action_shape=(),
+                action_dtype=np.int32,
+                audio_dtype=np.float32,
+                reward_shape=(),
+                reward_dtype=np.float32):
+        super().__init__(
+            data_spec=data_spec,
+            observation_shape=observation_shape,
+            audio_shape=audio_shape,
+            stack_size=stack_size,
+            replay_capacity=int(replay_capacity),
+            batch_size=batch_size,
+            update_horizon=update_horizon,
+            rng=rng,
+            gamma=gamma,
+            max_sample_attempts=max_sample_attempts,
+            observation_dtype=observation_dtype,
+            terminal_dtype=terminal_dtype,
+            subseq_len=subseq_len,
+            n_envs=n_envs,
+            action_shape=action_shape,
+            action_dtype=action_dtype,
+            audio_dtype=audio_dtype,
+            reward_shape=reward_shape,
+            reward_dtype=reward_dtype)
+
+        self.sum_tree = SumTree(int(replay_capacity))
+        self.prioritized = True
+
+    def get_add_args_signature(self):
+        """The signature of the add function."""
+        parent_add_signature = super().get_add_args_signature()
+        add_signature = parent_add_signature + [
+            tf.TensorSpec(name='priority', shape=(), dtype=np.float32)
+        ]
+        return add_signature
+
+    def _add(self, *args):
+        """Internal add method to add to the underlying memory arrays."""
+        self._check_args_length(*args)
+
+        # Use Schaul et al.'s (2015) scheme of setting the priority of new elements
+        # to the maximum priority so far.
+        # Picks out 'priority' from arguments and adds it to the sum_tree.
+        transition = {}
+        for i, element in enumerate(self.get_add_args_signature()):
+            if element.name == 'priority':
+                priority = args[i]
+            else:
+                transition[element.name] = args[i]
+
+        indices = np.ravel_multi_index(
+            (np.ones((1,), dtype='int32') * self.cursor(), np.arange(self._n_envs)),
+            (self._replay_length, self._n_envs),
+        )
+
+        for i in range(len(indices)):
+            self.sum_tree.set(indices[i], priority[i])
+        super()._add_transition(transition)
+
+    def sample_index_batch(self, batch_size):
+        """Returns a batch of valid indices sampled as in Schaul et al. (2015)."""
+        # Sample stratified indices. Some of them might be invalid.
+        # start = time.time()
+        indices = self.sum_tree.stratified_sample(batch_size)
+        indices = np.array(indices)
+        # print("Sampling from sum tree took {}".format(time.time() - start))
+        allowed_attempts = self._max_sample_attempts
+
+        t_indices, b_indices = self.unravel_indices(indices)  # pylint: disable=unbalanced-tuple-unpacking
+        censor_before = np.zeros_like(t_indices)
+        for i in range(len(indices)):
+            is_valid, ep_start = self.is_valid_transition(t_indices[i:i + 1],
+                                                            b_indices[i:i + 1])
+            censor_before[i] = ep_start
+            if not is_valid:
+                if allowed_attempts == 0:
+                    raise RuntimeError(
+                        'Max sample attempts: Tried {} times but only sampled {}'
+                        ' valid indices. Batch size is {}'.format(
+                            self._max_sample_attempts, i, batch_size))
+                while (not is_valid) and allowed_attempts > 0:
+                    # If index i is not valid keep sampling others. Note that this
+                    # is not stratified.
+                    index = int(self.sum_tree.stratified_sample(1)[0])
+                    t_index, b_index = self.unravel_indices(index)  # pylint: disable=unbalanced-tuple-unpacking
+
+                    allowed_attempts -= 1
+                    t_indices[i] = t_index
+                    b_indices[i] = b_index
+                    is_valid, ep_start = self.is_valid_transition(t_indices[i:i + 1],
+                                                                    b_indices[i:i + 1])
+                    censor_before[i] = ep_start
+        return t_indices, b_indices, censor_before
+
+    def sample_transition_batch(
+        self,
+        batch_size=None,
+        indices=None,
+        subseq_len=None,
+        update_horizon=None,
+        gamma=None,
+    ):
+        """Returns a batch of transitions with extra storage and the priorities."""
+        transition = super().sample_transition_batch(
+            batch_size,
+            indices,
+            subseq_len=subseq_len,
+            update_horizon=update_horizon,
+            gamma=gamma,
+        )
+        transition.append(self.get_priority(transition[-1]))
+        return transition
+
+    def set_priority(self, indices, priorities):
+        """Sets the priority of the given elements according to Schaul et al."""
+        assert indices.dtype == np.int32, ('Indices must be integers, '
+                                        'given: {}'.format(indices.dtype))
+        for index, priority in zip(indices, priorities):
+            self.sum_tree.set(index, priority)
+
+    def get_priority(self, indices):
+        """Fetches the priorities correspond to a batch of memory indices."""
+        assert indices.shape, 'Indices must be an array.'
+        assert indices.dtype == np.int32, ('Indices must be int32s, '
+                                        'given: {}'.format(indices.dtype))
+        priority_batch = self.sum_tree.get(indices)
+        return priority_batch
+
+    def get_transition_elements(self, batch_size=None):
+        """Returns a 'type signature' for sample_transition_batch."""
+        parent_transition_type = (super().get_transition_elements(batch_size))
+        probablilities_type = [
+            tf.TensorSpec(name='sampling_probabilities', shape=(batch_size,), dtype=np.float32)
+        ]
+        return parent_transition_type + probablilities_type
+
+    def reset_priorities(self):
+        self.sum_tree.reset_priorities()

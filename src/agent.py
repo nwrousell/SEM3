@@ -192,7 +192,8 @@ class Agent:
                    next_rewards, # (batch_size, subseq_len)
                    terminals, # (batch_size, subseq_len)
                    same_trajectory, # (batch_size, subseq_len)
-                   indices):
+                   indices,
+                   sampling_probabilities=None):
         
         # swap batch and time dimensions
         next_video = tf.transpose(next_video, perm=[1,0,2,3,4])
@@ -226,9 +227,31 @@ class Agent:
             td_error = self.compute_td_error(q_values, actions[:,:update_horizon], q_targets, logits=logits)
             spr_loss = self.compute_spr_error(spr_targets, spr_predictions, same_trajectory[:, :self.spr_prediction_depth])
             
-            td_error = tf.reduce_mean(td_error)
             spr_loss = tf.reduce_mean(spr_loss)
-                            
+
+            if self.prioritized:
+                # The original prioritized experience replay uses a linear exponent
+                # schedule 0.4 -> 1.0. Comparing the schedule to a fixed exponent of 0.5
+                # on 5 games (Asterix, Pong, Q*Bert, Seaquest, Space Invaders) suggested
+                # a fixed exponent actually performs better, except on Pong.
+                loss_weights = 1.0 / tf.sqrt(sampling_probabilities + 1e-10)
+                loss_weights /= tf.reduce_max(loss_weights)
+                loss_weights = tf.cast(loss_weights, np.float32)
+
+                # Rainbow and prioritized replay are parametrized by an exponent alpha,
+                # but in both cases it is set to 0.5 - for simplicity's sake we leave it
+                # as is here, using the more direct tf.sqrt(). Taking the square root
+                # "makes sense", as we are dealing with a squared loss.
+                # Add a small nonzero value to the loss to avoid 0 priority items. While
+                # technically this may be okay, setting all items to 0 priority will cause
+                # troubles, and also result in 1.0 / 0.0 = NaN correction terms.
+                update_priorities_op = self.replay.set_priority(
+                    indices, tf.sqrt(td_error + 1e-10)
+                )
+
+                # Weight the loss by the inverse priorities.
+                td_error = loss_weights * td_error
+            
             loss = td_error + self.spr_loss_weight * spr_loss
         
         gradients = tape.gradient(loss, self.online_model.trainable_variables)

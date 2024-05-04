@@ -63,7 +63,6 @@ def process_inputs(obs, _: bool, scale_type: str):
         image = central_crop(image, crop_height, crop_width)
     
     audio = audio.astype(np.float32) / 255.0
-    
 
     return image, audio
 

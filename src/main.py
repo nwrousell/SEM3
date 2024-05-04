@@ -1,4 +1,4 @@
-from replay_buffer import ReplayBuffer
+from replay_buffer import ReplayBuffer, PrioritizedReplayBuffer
 import tensorflow as tf
 from image_pre import process_inputs
 import numpy as np
@@ -19,18 +19,35 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
     checkpoint = tf.train.Checkpoint(step=tf.Variable(0), optimizer=agent.optimizer, model=agent.online_model)
     manager = tf.train.CheckpointManager(checkpoint, args['model_dir']+run_name, max_to_keep=3)
     
-    replay_buffer = ReplayBuffer(data_spec, 
-                                 replay_capacity=args['replay_capacity'], 
-                                 batch_size=args['batch_size'], 
-                                 update_horizon=args['start_update_horizon'], 
-                                 gamma=args['start_gamma'], 
-                                 n_envs=1, 
-                                 stack_size=args['stack_frames'],
-                                 subseq_len=args['subseq_len'],
-                                 observation_shape=vid_shape,
-                                 audio_shape=(512,),
-                                 rng=np.random.default_rng(seed=17)
-                                )
+    if args['prioritized']:
+        replay_buffer = PrioritizedReplayBuffer(data_spec=data_spec, 
+                                    replay_capacity=args['replay_capacity'], 
+                                    batch_size=args['batch_size'], 
+                                    update_horizon=args['start_update_horizon'], 
+                                    gamma=args['start_gamma'], 
+                                    n_envs=1, 
+                                    stack_size=args['stack_frames'],
+                                    subseq_len=args['subseq_len'],
+                                    observation_shape=vid_shape,
+                                    audio_shape=(512,),
+                                    rng=np.random.default_rng(seed=17)
+                                    )
+    else:
+        replay_buffer = ReplayBuffer(data_spec, 
+                                    replay_capacity=args['replay_capacity'], 
+                                    batch_size=args['batch_size'], 
+                                    update_horizon=args['start_update_horizon'], 
+                                    gamma=args['start_gamma'], 
+                                    n_envs=1, 
+                                    stack_size=args['stack_frames'],
+                                    subseq_len=args['subseq_len'],
+                                    observation_shape=vid_shape,
+                                    audio_shape=(512,),
+                                    rng=np.random.default_rng(seed=17)
+                                    )
+    
+    agent.replay = replay_buffer
+    agent.prioritized = args['prioritized']
 
     observation, _ = env.reset()
 
@@ -71,7 +88,10 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
         if args['clip_reward']:
             reward = np.clip(reward, -1, 1)
             
-        replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]))
+        if args['prioritized']:
+            replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]), np.array([1.0]))
+        else:
+            replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]))
         
         if terminated:
             print("TERMINATED")
@@ -242,6 +262,11 @@ def main():
         tf.TensorSpec(shape=(), name="reward", dtype=np.float32),
         tf.TensorSpec(shape=(), name="terminal", dtype=np.uint8),
     ]
+
+    # if config_args['prioritized']:
+    #     data_spec += [
+    #         tf.TensorSpec(name='priority', shape=(), dtype=np.float32)
+    #     ]
 
     agent = Agent(config_args['stack_frames'], 
                   config_args['encoder_network'],
