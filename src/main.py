@@ -49,6 +49,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
     agent.replay = replay_buffer
     agent.prioritized = args['prioritized']
 
+
     observation, _ = env.reset()
 
     observation = (observation[0], np.zeros((512,)))
@@ -70,6 +71,16 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
     current_video = np.concatenate([np.zeros((*vid_shape,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
     
+    num_noops = np.random.randint(5, 20)
+    for l in range(num_noops):
+        action = agent.choose_action(None, None, 1.0)
+        observation, reward, terminated, _, _ = env.step(action)
+        if args['process_inputs']:
+            video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
+        
+        current_video = np.concatenate([current_video[:,:,1:], video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+        current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
+
     for t in range(args['num_env_steps']):
         epsilon = linearly_decaying_epsilon(args['epsilon_decay_period'], t, args['initial_collect_steps'], args['epsilon_train'])
         
@@ -107,12 +118,31 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
             train_logger.log(log_data)
             observation, _ = env.reset()
             observation = (observation[0], np.zeros((512,)))
+        
             episode_length = 0
             if args['process_inputs']:
                 video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
             current_video = np.concatenate([np.zeros((*vid_shape,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
             current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
             episode_rewards.append(0.0)
+
+            num_noops = np.random.randint(5, 20)
+            for l in range(num_noops):
+                action = agent.choose_action(None, None, 1.0)
+                observation, reward, terminated, _, _ = env.step(action)
+                if args['process_inputs']:
+                    video, audio = process_inputs(observation, True, scale_type=args['scale_type'])
+                
+                current_video = np.concatenate([current_video[:,:,1:], video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
+                current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
+                episode_length += 1
+                episode_rewards[-1] += reward
+                if args['clip_reward']:
+                    reward = np.clip(reward, -1, 1)
+                if args['prioritized']:
+                    replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]), np.array([1.0]))
+                else:
+                    replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]))
         
         if t > args['initial_collect_steps']:
             update_horizon = round(agent.update_horizon_scheduler(num_grad_steps % args['reset_every']))

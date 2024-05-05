@@ -105,15 +105,13 @@ class Agent:
         self.update_horizon_scheduler = exponential_decay_scheduler(10000, 0, start_update_horizon, end_update_horizon)
     
     def choose_action(self, video, audio, epsilon):
-        video = video[np.newaxis,:,:,:]
-        audio = audio[np.newaxis,:,:]
-
-        observation = (video, audio)
-
         prob = np.random.random()
         if prob < epsilon:
             action = np.random.randint(0, self.n_actions)
         else:
+            video = video[np.newaxis,:,:,:]
+            audio = audio[np.newaxis,:,:]
+            observation = (video, audio)
             if self.target_action_selection:
                 q_values = self.target_model(observation, self.support)[0]
             else:
@@ -140,7 +138,7 @@ class Agent:
         spr_predictions = spr_predictions / tf.norm(spr_predictions, axis=-1, keepdims=True)
         spr_targets = spr_targets / tf.norm(spr_targets, axis=-1, keepdims=True)
         spr_loss = tf.reduce_sum(tf.pow(spr_predictions - spr_targets, 2), axis=-1)
-        spr_loss = tf.reduce_sum(spr_loss * tf.cast(tf.transpose(same_trajectory, [1,0]), dtype=np.float32), axis=-1)
+        spr_loss = tf.reduce_sum(spr_loss * tf.cast(tf.transpose(same_trajectory, [1,0]), dtype=np.float32), axis=-2)
         
         return spr_loss
 
@@ -227,8 +225,6 @@ class Agent:
             td_error = self.compute_td_error(q_values, actions[:,:update_horizon], q_targets, logits=logits)
             spr_loss = self.compute_spr_error(spr_targets, spr_predictions, same_trajectory[:, :self.spr_prediction_depth])
             
-            spr_loss = tf.reduce_mean(spr_loss)
-
             if self.prioritized:
                 # The original prioritized experience replay uses a linear exponent
                 # schedule 0.4 -> 1.0. Comparing the schedule to a fixed exponent of 0.5
@@ -252,11 +248,13 @@ class Agent:
                 # Weight the loss by the inverse priorities.
                 td_error = loss_weights * td_error
             
-            loss = tf.reduce_mean(td_error) + self.spr_loss_weight * spr_loss
+            loss = tf.reduce_mean(td_error + self.spr_loss_weight * spr_loss)
         
         gradients = tape.gradient(loss, self.online_model.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.online_model.trainable_variables))
         
+        td_error = tf.reduce_mean(td_error)
+        spr_loss = tf.reduce_mean(spr_loss)
         return loss.numpy(), td_error.numpy(), spr_loss.numpy()
     
     def update_target(self):
