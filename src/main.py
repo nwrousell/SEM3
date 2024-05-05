@@ -10,7 +10,7 @@ from atari import Atari
 from atari import AtariMonitor
 from logger import Logger
 
-train_log_fields = ['environment_step', 'gradient_step', 'spr_loss', 'td_error', 'num_episodes', 'episode_reward', 'episode_length']
+train_log_fields = ['environment_step', 'gradient_step', 'total_loss', 'spr_loss', 'td_error', 'num_episodes', 'episode_reward', 'episode_length']
 eval_log_fields = ['environment_step', 'gradient_step', 'num_train_episodes', 'mean_episode_reward', 'mean_episode_length']
     
 def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
@@ -60,6 +60,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
     prev_num_episodes_log = -1
     spr_error = -1
     td_error = -1
+    loss = -1
     episode_length = 0
 
     
@@ -109,6 +110,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
             log_data = {
                 "environment_step": t,
                 "gradient_step": num_grad_steps,
+                'total_loss': loss,
                 "spr_loss": spr_error,
                 "td_error": td_error,
                 "num_episodes": len(episode_rewards),
