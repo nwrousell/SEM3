@@ -83,7 +83,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
         current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
 
     for t in range(args['num_env_steps']):
-        epsilon = linearly_decaying_epsilon(args['epsilon_decay_period'], t, args['initial_collect_steps'], args['epsilon_train'])
+        epsilon = linearly_decaying_epsilon(args['epsilon_decay_period'], t % args['reset_every']/args['replay_ratio'], args['initial_collect_steps'], args['epsilon_train'])
         
         action = agent.choose_action(current_video, current_audio, epsilon)
         observation, reward, terminated, _, _ = env.step(action)
