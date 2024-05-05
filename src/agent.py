@@ -34,6 +34,7 @@ class Agent:
         reset_target=True,
         audio=False,
         scale=True,
+        batch_size=32,
         ):
         
         self.spr_prediction_depth = spr_prediction_depth
@@ -56,6 +57,7 @@ class Agent:
         self.reset_target = reset_target
         self.audio = audio
         self.downscale = scale
+        self.batch_size = batch_size
 
         self.online_model = BBFModel(input_shape=(*input_shape, stack_frames), 
                           encoder_network=encoder_network,
@@ -98,7 +100,7 @@ class Agent:
         online_weights = self.online_model.get_weights()
         self.target_model.set_weights(online_weights)
         
-        self.optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay)
+        self.optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=0.00015)
         self.huber_loss = tf.keras.losses.Huber()
         
         self.gamma_scheduler = exponential_decay_scheduler(10000, 0, start_gamma, end_gamma)
@@ -195,7 +197,6 @@ class Agent:
         
         # swap batch and time dimensions
         next_video = tf.transpose(next_video, perm=[1,0,2,3,4])
-        
         next_audio = tf.transpose(next_audio, perm=[1,0,2,3])
                     
         first_video = video[:,0,:,:,:] # (batch_size, 84, 84, 4)
@@ -203,7 +204,6 @@ class Agent:
 
         first_state = (first_video, first_audio)
 
-        batch_size = 32
         hidden_dim = 2048
         
         with tf.GradientTape() as tape:
@@ -218,7 +218,7 @@ class Agent:
             next_states_for_spr =  (next_video_for_spr, next_audio_for_spr)
 
             # spr_targets = tf.vectorized_map(lambda x: self.target_model.encode_project(x, True, False), next_states_for_spr)
-            spr_targets = tf.map_fn(lambda x: self.target_model.encode_project(x, True, False), elems=next_states_for_spr, fn_output_signature=tf.TensorSpec(shape=(batch_size, hidden_dim)))
+            spr_targets = tf.map_fn(lambda x: self.target_model.encode_project(x, True, False), elems=next_states_for_spr, fn_output_signature=tf.TensorSpec(shape=(self.batch_size, hidden_dim)))
             q_targets = self.get_target_q_values(rewards[:,:update_horizon], terminals[:,:update_horizon], discounts, next_video[:update_horizon], next_audio[:update_horizon], update_horizon)
             
             # compute TD error and SPR loss

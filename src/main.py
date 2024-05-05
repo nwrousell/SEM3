@@ -72,7 +72,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
     current_video = np.concatenate([np.zeros((*vid_shape,args['stack_frames']-1)), video[:,:,np.newaxis]], dtype=np.float32, axis=-1)
     current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
     
-    num_noops = np.random.randint(5, 20)
+    num_noops = np.random.randint(5, 30)
     for l in range(num_noops):
         action = agent.choose_action(None, None, 1.0)
         observation, reward, terminated, _, _ = env.step(action)
@@ -128,7 +128,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
             current_audio = np.concatenate([np.zeros((512,args['stack_frames']-1)), audio[:, np.newaxis]], dtype=np.float32, axis=-1)
             episode_rewards.append(0.0)
 
-            num_noops = np.random.randint(5, 20)
+            num_noops = np.random.randint(5, 30)
             for l in range(num_noops):
                 action = agent.choose_action(None, None, 1.0)
                 observation, reward, terminated, _, _ = env.step(action)
@@ -327,6 +327,7 @@ def main():
                   config_args['reset_target'],
                   config_args['audio'],
                   config_args['scale_type']!='none',
+                  config_args['batch_size']
                   )
     
     if terminal_args.train:
