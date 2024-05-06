@@ -101,7 +101,7 @@ class Agent:
         self.target_model.set_weights(online_weights)
         
         self.optimizer = tf.keras.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=0.00015)
-        self.huber_loss = tf.keras.losses.Huber()
+        # self.huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)
         
         self.gamma_scheduler = exponential_decay_scheduler(10000, 0, start_gamma, end_gamma)
         self.update_horizon_scheduler = exponential_decay_scheduler(10000, 0, start_update_horizon, end_update_horizon)
@@ -132,7 +132,7 @@ class Agent:
             td_error = dqn_loss + tf.reduce_sum(np.nan_to_num(target * tf.math.log(target)), axis=-1)
         else:
             chosen_q = tf.gather(q_values, indices=first_actions, axis=1, batch_dims=1)
-            td_error = self.huber_loss(target, chosen_q)
+            td_error = huber_loss(target, chosen_q)
         
         return td_error
     
@@ -174,7 +174,7 @@ class Agent:
         else:
             # target_q_values = r_1 + γr_2 + ... + γ^{n-1}r_{n-1} + γ^nQ*(s_{t+n})
             future_q = tf.gather(future_qs_target, indices=action_selected, axis=1, batch_dims=1)
-            target = discounted_reward_prefix + gamma_n * future_q
+            target = discounted_reward_prefix + gamma_n * future_q # ! here
 
         return tf.stop_gradient(target) # (batch_size, update_horizon)
     
@@ -270,7 +270,14 @@ class Agent:
         if self.reset_target:
             new_target_weights = weights_reset(get_weight_dict(self.target_model), self.shrink_factor)
             set_weights(self.target_model, new_target_weights)
-    
+
+def huber_loss(y_true, y_pred, delta=1.0):
+    residual = tf.abs(y_true - y_pred)
+    condition = tf.less(residual, delta)
+    small_res = 0.5 * tf.square(residual)
+    large_res = delta * residual - 0.5 * tf.square(delta)
+    return tf.where(condition, small_res, large_res)
+
 def get_weight_dict(model):
     weight_dict = {}
     for layer in model.layers:
