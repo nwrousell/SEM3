@@ -84,7 +84,7 @@ class Agent:
                             audio=self.audio,
                             scale=self.downscale,
                             )
-        self.target_model.trainable = False
+        # self.target_model.trainable = False
         
         fake_video = np.zeros((1, *input_shape, stack_frames))
         fake_audio = np.zeros((1, 512, stack_frames))
@@ -92,9 +92,11 @@ class Agent:
         _ = self.online_model(fake_state, self.support, do_rollout=True, actions=np.random.randint(0,  n_actions, (1, spr_prediction_depth)))
         _ = self.target_model(fake_state, self.support, do_rollout=True, actions=np.random.randint(0, n_actions, (1, spr_prediction_depth)))
         
-        # print(self.online_model.summary())
-        # print(self.online_model.head.summary())
-        # print(bbf_online.encoder.summary())
+        # Initialize the EMA
+        self.ema = tf.train.ExponentialMovingAverage(decay=(1-self.target_ema_tau))
+
+        # Apply EMA to all trainable variables
+        self.ema_op = self.ema.apply(self.online_model.trainable_variables)
         
         # initially, set target network to clone of online network
         online_weights = self.online_model.get_weights()
@@ -241,9 +243,11 @@ class Agent:
                 # Add a small nonzero value to the loss to avoid 0 priority items. While
                 # technically this may be okay, setting all items to 0 priority will cause
                 # troubles, and also result in 1.0 / 0.0 = NaN correction terms.
-                update_priorities_op = self.replay.set_priority(
-                    indices, tf.sqrt(td_error + 1e-10)
-                )
+                indices = tf.reshape(indices, (-1))
+                td_error = tf.reshape(td_error, (-1))
+                priorities = tf.sqrt(td_error + 1e-10)
+                # print("priorities:", priorities)
+                self.replay.set_priority(indices, priorities)
 
                 # Weight the loss by the inverse priorities.
                 td_error = loss_weights * td_error
@@ -258,12 +262,16 @@ class Agent:
         return loss.numpy(), td_error.numpy(), spr_loss.numpy()
     
     def update_target(self):
-        target_weights = get_weight_dict(self.target_model)
-        online_weights = get_weight_dict(self.online_model)
-        new_target_weights = interpolate_weights(target_weights, online_weights, self.target_ema_tau)
-        set_weights(self.target_model, new_target_weights)
+        self.ema.apply(self.online_model.trainable_variables)
+        for target_var, online_var in zip(self.target_model.trainable_variables, self.online_model.trainable_variables):
+            target_var.assign(self.ema.average(online_var))
+        # target_weights = get_weight_dict(self.target_model)
+        # online_weights = get_weight_dict(self.online_model)
+        # new_target_weights = interpolate_weights(target_weights, online_weights, self.target_ema_tau)
+        # set_weights(self.target_model, new_target_weights)
     
     def reset_weights(self):
+        print("RESETTING")
         new_online_weights = weights_reset(get_weight_dict(self.online_model), self.shrink_factor)
         set_weights(self.online_model, new_online_weights)
         

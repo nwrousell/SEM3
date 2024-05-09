@@ -101,7 +101,8 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
             reward = np.clip(reward, -1, 1)
             
         if args['prioritized']:
-            replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]), np.array([1.0]))
+
+            replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]), np.array([replay_buffer.sum_tree.max_recorded_priority]))
         else:
             replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]))
         
@@ -142,7 +143,7 @@ def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
                 if args['clip_reward']:
                     reward = np.clip(reward, -1, 1)
                 if args['prioritized']:
-                    replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]), np.array([1.0]))
+                    replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]), np.array([replay_buffer.sum_tree.max_recorded_priority]))
                 else:
                     replay_buffer.add(video, audio, action, reward, np.array([int(terminated)]))
         

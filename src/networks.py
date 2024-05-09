@@ -5,11 +5,11 @@ import numpy as np
 # it does not work -> using this goes to NAN
 # https://github.com/google-research/google-research/blob/a3e7b75d49edc68c36487b2188fa834e02c12986/bigger_better_faster/bbf/spr_networks.py#L315
 def renormalize(tensor):
-    shape = tensor.shape
-    tensor = tf.reshape(tensor, [tensor.shape[0], -1])
-    max_value = tf.reduce_max(tensor, axis=-1, keepdims=True)
-    min_value = tf.reduce_max(tensor, axis=-1, keepdims=True)
-    return tf.reshape(((tensor - min_value) / (max_value - min_value + 1e-5)), shape)
+    flat_tensor = tf.reshape(tensor, [tensor.shape[0], -1])
+    max_value = tf.reduce_max(flat_tensor, axis=-1, keepdims=True)
+    min_value = tf.reduce_max(flat_tensor, axis=-1, keepdims=True)
+    tensor = tf.reshape(((flat_tensor - min_value) / (max_value - min_value + 1e-5)), tensor.shape)
+    return tensor
 
 def residual_stage(x, dim, width_scale, num_blocks, initializer, norm_type, dropout):
     """Residual block with two convolutional layers."""
@@ -225,8 +225,8 @@ class BBFModel(tf.keras.Model):
     def encode(self, x, has_batch=False, is_rollout=False):
         video, audio = x
         latent = self.encoder(video)
-        # if self.renormalize:
-        #     latent = renormalize(latent)
+        if self.renormalize:
+            latent = renormalize(latent)
         if self.audio:
             audio_latent = self.audio_encoder(audio)
             latent = tf.concat([latent, audio_latent], axis=-1)
@@ -263,7 +263,6 @@ class BBFModel(tf.keras.Model):
             states.append(pred_state)
         return x, tf.stack(states)
     
-    # @functools.partial(jax.vmap, in_axes=(None, 0))
     def spr_predict(self, x):
         projected = self.project(x)
         return self.predictor(projected)

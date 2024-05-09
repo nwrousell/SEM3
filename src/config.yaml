@@ -2,24 +2,24 @@
 
 game: "assault" # 'assault' | 'road_runner' | 'amidar' | 'breakout'
 n_actions: 7 # assault: 7, road_runner: 18, breakout: 4, amidar: 10
-batch_size: 16
+batch_size: 32
 subseq_len: 10
-target_ema_tau: 0.01 # how much to interpolate weights for the EMA of the target network
+target_ema_tau: 0.005 # how much to interpolate weights for the EMA of the target network
 epsilon: 0.05 
-epsilon_decay_period: 2001
-epsilon_train: 0.05
+epsilon_decay_period: 8001
+epsilon_train: 0.1
 initial_collect_steps: 2000
 learning_rate: 0.0001
 weight_decay: 0.02
 frameskip: 4
 stack_frames: 4
-renormalize: False
+renormalize: True
 double_DQN: True
 distributional_DQN: True
 dueling_DQN: True
-target_update_frequency: 5
+target_update_frequency: 1
 target_action_selection: True # whether to use the target network for action selection during data collection
-audio: True
+audio: False
 prioritized: True
 
 hidden_dim: 2048 # size of the projection / prediction layers
