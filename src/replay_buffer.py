@@ -772,6 +772,7 @@ class PrioritizedReplayBuffer(
         # print("Sampling from sum tree took {}".format(time.time() - start))
         allowed_attempts = self._max_sample_attempts
 
+        # ! this one
         t_indices, b_indices = self.unravel_indices(indices)  # pylint: disable=unbalanced-tuple-unpacking
         censor_before = np.zeros_like(t_indices)
         for i in range(len(indices)):

@@ -12,7 +12,7 @@ from logger import Logger
 
 train_log_fields = ['environment_step', 'gradient_step', 'total_loss', 'spr_loss', 'td_error', 'num_episodes', 'episode_reward', 'episode_length']
 eval_log_fields = ['environment_step', 'gradient_step', 'num_train_episodes', 'mean_episode_reward', 'mean_episode_length']
-    
+
 def train(agent: Agent, env, args, run_name, data_spec, vid_shape):
     train_logger = Logger(args['summaries_dir']+run_name+"/", "train_log.csv", train_log_fields)
     eval_logger = Logger(args['summaries_dir']+run_name+"/", "eval_log.csv", eval_log_fields)

@@ -67,6 +67,8 @@ class SumTree(object):
                 'Sum tree capacity should be positive. Got: {}'.format(capacity)
             )
 
+        self.capacity = capacity
+
         self.nodes = []
         tree_depth = int(math.ceil(np.log2(capacity)))
         level_size = 1
@@ -128,7 +130,7 @@ class SumTree(object):
                 # Adjust query to be relative to right subtree.
                 query_value -= left_sum
 
-        return node_index
+        return np.minimum(node_index, self.capacity-1)
 
     def stratified_sample(self, batch_size):
         """Performs stratified sampling using the sum tree.
