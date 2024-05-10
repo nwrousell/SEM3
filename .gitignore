@@ -2,6 +2,7 @@ env
 roms
 runs
 videos
+save
 
 src/__pycache__
 

@@ -1,0 +1,6 @@
+environment_step,gradient_step,num_train_episodes,mean_episode_reward,mean_episode_length
+1,6000,9,14.8,833.0
+1,16000,16,25.0,670.0
+1,26000,22,78.4,967.8
+1,36000,28,26.2,567.2
+1,46000,35,14.0,559.0
