@@ -1,22 +1,7 @@
-# DL-final-project
+# SEM3
+We have been able to train RL algorithms that rival and exceed human level on tasks such as chess and Go, but this progress has not made it to embodied settings due to the need for massive amounts of data during training and the narrow skillset of these bots. In recent years, pioneering work has been done to discover what is needed to create sample-efficient RL models. 
 
-## Resources
-- [2015 DQN Paper](https://www-nature-com.revproxy.brown.edu/articles/nature14236)
-- [EfficientZero Paper](https://arxiv.org/pdf/2111.00210.pdf)
-  - Built on top of [MuZero](https://arxiv.org/pdf/1911.08265.pdf)
-  - Slightly beaten in 2023 by [BBF](https://arxiv.org/pdf/2305.19452v3.pdf)
-- [OpenAI Gymnasium](https://gymnasium.farama.org/)
-  - [PR that added audio support](https://github.com/Farama-Foundation/Arcade-Learning-Environment/pull/233)
-  - [CASL fork of ALE with audio support](https://github.com/shayegano/Arcade-Learning-Environment)
-- [CrossModal Attentive Skill Learner](https://arxiv.org/pdf/1711.10314.pdf)
-    - Amidar might be a good game to use
+We develop a model that builds on prevous work (notably the 2023 [Bigger, Better, Faster Model](https://arxiv.org/abs/2305.19452)) and adds the capacity for multi-modal input. We train our model on Atari 2600 games using the raw input of video frames and audio as observations. 
 
-## Environment setup
-- `python -m venv env`
-- `source env/bin/activate`
-- `pip install tensorflow python-speech-features scikit-image imageio matplotlib pyyaml opencv-python`
-
-
-- AutoROM to download ROMs manually (if using ALE instead): [docs](https://pypi.org/project/AutoROM/)
-
-- `tf-agents` not playing nice with keras fix: https://stackoverflow.com/questions/78233403/attributeerror-module-keras-tf-keras-keras-has-no-attribute-internal/78233592#78233592
+## Gifs
+![Assault](https://github.com/nwrousell/SEM3/blob/main/gifs/assualt.gif)
